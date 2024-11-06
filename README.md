@@ -185,7 +185,7 @@ Requires HTTP header `Authorization: Bearer <access_token>`
 
 - Register for an exam \
 **POST** `https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/` \
-Body:
+with body:
 ```json
 {
   "toetsen": [
@@ -234,5 +234,14 @@ Response:
             "type": "E"
         }
     ]
+}
+```
+
+- Disenroll from a course \
+**DELETE** `https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/<id_toets_gelegenheid>`
+
+```json
+{
+  "statusmeldingen":[]
 }
 ```
