@@ -10,18 +10,18 @@ const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
 pub async fn get_access_token(username: &str, password: &str) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
-    let (url, body) = initiate_authorization(&client).await?;
+    let (url, body) = initiate_authorization(&client, AUTH_URL).await?;
     let auth_state = get_auth_state(&body);
     let body = submit_login_form(&client, username, password, &url, &auth_state).await?;
     let (form_action, saml_response, relay_state) = extract_saml_response(&body);
     let code = submit_saml_response(&client, form_action.as_str(), saml_response.as_str(), relay_state.as_str()).await?;
     
-    let access_token = request_access_token(&client, &code).await?;
+    let access_token = request_access_token(&client, &code, TOKEN_URL).await?;
     Ok(access_token)
 }
 
-async fn initiate_authorization(client: &reqwest::Client) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let response = client.post(AUTH_URL).send().await?;
+async fn initiate_authorization(client: &reqwest::Client, url: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let response = client.post(url).send().await?;
     let url = response.url().as_str().to_string();
     let body = response.text().await?;
     Ok((url, body))
@@ -80,12 +80,12 @@ async fn submit_saml_response(client: &reqwest::Client, form_action: &str, saml_
     Ok(code.to_string())
 }
 
-async fn request_access_token(client: &reqwest::Client, code: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut body = HashMap::new();
     body.insert("code", code);
     body.insert("redirect_uri", "");
 
-    let response = client.post(TOKEN_URL).json(&body).send().await?;
+    let response = client.post(url).json(&body).send().await?;
 
     let json_response: serde_json::Value = response.json().await?;
     let access_token = json_response["access_token"]
@@ -101,7 +101,52 @@ async fn request_access_token(client: &reqwest::Client, code: &str) -> Result<St
 mod tests {
     use super::*;
 
-    // Tests for get_auth_state
+    /// Simulates an OAuth flow by mocking `/oauth/authorize` to redirect to `/final-destination`.
+    /// Verifies that `initiate_authorization` correctly follows a 302 redirect and ensures that the response body matches the body of the redirected URL.
+    #[tokio::test]
+    async fn test_initiate_authorization_mock() {
+        let mut server = mockito::Server::new_async().await;
+        let url = server.url();
+        let redirect_url = format!("{}/final-destination", url);
+
+        let _mock_redirect = server.mock("POST", "/oauth/authorize")
+            .with_status(302)
+            .with_header("Location", &redirect_url)
+            .create();
+
+        let _mock_final_destination = server.mock("GET", "/final-destination")
+            .with_status(200)
+            .with_body("Final destination reached")
+            .create();
+
+        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let request_url = format!("{}/oauth/authorize", url);
+        let response = initiate_authorization(&client, &request_url).await;
+
+        assert!(response.is_ok());
+        let (url, body) = response.unwrap();
+        assert!(url.contains("/final-destination"));
+        assert!(body.contains("Final destination reached"));
+
+        _mock_redirect.assert();
+        _mock_final_destination.assert();
+    }
+
+    /// Tests a real OAuth flow by calling the live `/oauth/authorize` endpoint.
+    /// Verifies that `initiate_authorization` correctly follows a live 302 redirect and ensures that the response body contains the expected form data and `AuthState` parameter.
+    #[tokio::test]
+    async fn test_initiate_authorization_live() {
+        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let response = initiate_authorization(&client, AUTH_URL).await;
+
+        assert!(response.is_ok());
+        // Url should be of the form https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState=<auth_state>
+        let (url, body) = response.unwrap();
+        assert!(url.contains("https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState="));
+        assert!(body.contains("<form"));
+        assert!(body.contains("AuthState"));
+    }
+
     #[test]
     fn test_get_auth_state() {
         let html = r#"
@@ -116,7 +161,31 @@ mod tests {
         assert_eq!(auth_state, "test-auth-state-123");
     }
 
-    // Tests for extract_saml_response
+    /// Simulates submitting a login form using mock server to test `submit_login_form` function.
+    /// Verifies that the response body matches the expected message from the server.
+    #[tokio::test]
+    async fn test_submit_login_form_mock() {
+        let mut server = mockito::Server::new_async().await;
+        let url = server.url();
+
+        let username = "testuser";
+        let password = "testpassword";
+        let auth_state = "test_auth_state";
+
+        let _mock = server.mock("POST", "/submit_login")
+            .with_status(200)
+            .with_body("Login successful")
+            .create();
+
+        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let request_url = format!("{}/submit_login", url);
+        let body = submit_login_form(&client, username, password, &request_url, auth_state).await.expect("Failed to submit login form");
+
+        assert_eq!(body, "Login successful");
+
+        _mock.assert();
+    }
+
     #[test]
     fn test_extract_saml_response() {
         let html = r#"
@@ -133,7 +202,6 @@ mod tests {
         assert_eq!(relay_state, "state-123");
     }
 
-    // Tests for extract_input_value
     #[test]
     fn test_extract_input_value() {
         let html = r#"<form><input name="test" value="test-value"/></form>"#;
@@ -143,5 +211,59 @@ mod tests {
         
         let value = extract_input_value(&form_element, "input[name='test']");
         assert_eq!(value, "test-value");
+    }
+
+    /// Tests `extract_input_value` by mocking a POST request to simulate submitting a SAML response.
+    /// The mock server returns a URL with a code query parameter after form submission.
+    #[tokio::test]
+    async fn test_submit_saml_response_mock() {
+        let mut server = mockito::Server::new_async().await;
+        let url = server.url();
+
+        let _mock_redirect = server.mock("POST", "/saml/response")
+            .with_status(302)
+            .with_header("Location", &format!("{}/callback?code=auth_code_example", url))
+            .create();
+
+        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let form_action = format!("{}/saml/response", url);
+        let saml_response = "dummy_saml_response";
+        let relay_state = "dummy_relay_state";
+
+        let result = submit_saml_response(&client, &form_action, saml_response, relay_state).await;
+
+        assert!(result.is_ok());
+        let code = result.unwrap();
+        assert_eq!(code, "auth_code_example");
+
+        _mock_redirect.assert();
+    }
+
+    /// Tests `request_access_token` by mocking a POST request to simulate submitting an `access_token` to the server
+    /// The mock server returns a access_token in JSON format.
+    #[tokio::test]
+    async fn test_request_access_token_mock() {
+        let mut server = mockito::Server::new_async().await;
+        let url = server.url();
+
+        let _mock = server.mock("POST", "/access_token")
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(serde_json::json!({
+                "access_token": "example_access_token"
+            }).to_string())
+            .create();
+
+        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let code = "auth_code_example";
+        let request_url = format!("{}/access_token", url);
+
+        let result = request_access_token(&client, code, &request_url).await;
+
+        assert!(result.is_ok());
+        let access_token = result.unwrap();
+        assert_eq!(access_token, "example_access_token");
+
+        _mock.assert();
     }
 }
