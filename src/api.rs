@@ -19,6 +19,7 @@ pub struct CourseList {
 
 #[derive(Deserialize, Debug)]
 pub struct Course {
+    id_cursus: u32,
     cursus: String,
     cursus_korte_naam: String,
 }
@@ -322,8 +323,8 @@ mod tests {
             .with_body(
                 serde_json::json!({
                     "items": [
-                        {"cursus": "CSE2310", "cursus_korte_naam": "Algorithm Design"},
-                        {"cursus": "CSE1000", "cursus_korte_naam": "Software Project"}
+                        {"id_cursus": 12345678, "cursus": "CSE2310", "cursus_korte_naam": "Algorithm Design"},
+                        {"id_cursus": 99999999, "cursus": "CSE1000", "cursus_korte_naam": "Software Project"}
                     ],
                     "hasMore": false,
                     "limit": 25,
@@ -339,8 +340,10 @@ mod tests {
         assert!(result.is_ok());
         let course_list = result.unwrap();
         assert_eq!(course_list.items.len(), 2);
+        assert_eq!(course_list.items[0].id_cursus, 12345678);
         assert_eq!(course_list.items[0].cursus, "CSE2310");
         assert_eq!(course_list.items[0].cursus_korte_naam, "Algorithm Design");
+        assert_eq!(course_list.items[1].id_cursus, 99999999);
         assert_eq!(course_list.items[1].cursus, "CSE1000");
         assert_eq!(course_list.items[1].cursus_korte_naam, "Software Project");
     }
