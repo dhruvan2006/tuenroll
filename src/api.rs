@@ -1,7 +1,27 @@
 use std::collections::HashMap;
 
+use serde::Deserialize;
+use serde_json::Value;
+
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
+
+pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/cursussen?toon_historie=N&limit=25";
+
+#[derive(Deserialize, Debug)]
+pub struct CourseList {
+    count: u32,
+    hasMore: bool,
+    items: Vec<Course>,
+    limit: u32,
+    offset: u32,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Course {
+    cursus: String,
+    cursus_korte_naam: String,
+}
 
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
 /// This token can be used for accessing resources at `https://my.tudelft.nl/`.
@@ -87,13 +107,36 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
 
     let response = client.post(url).json(&body).send().await?;
 
-    let json_response: serde_json::Value = response.json().await?;
+    let json_response: Value = response.json().await?;
     let access_token = json_response["access_token"]
         .as_str()
         .ok_or("access_token not found or invalid type")?
         .to_string();
 
     Ok(access_token)
+}
+
+/// Retrieves the user's registered course list from `course_url` using a JWT `access_token`.
+/// Returns a `CourseList` if successful. If the token is invalid or expired,
+/// it returns an error with a redirect URL for reauthentication
+pub async fn get_course_list(access_token: &str, course_url: &str) -> Result<CourseList, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder().cookie_store(true).build()?;
+
+    let response = client.get(course_url).bearer_auth(access_token).send().await?;
+    let response_text = response.text().await?;
+    let response_json: Value = serde_json::from_str(&response_text)?;
+
+    // Handle unauthenticated request
+    if let Some(auth_redirect_url) = response_json.get("Authenticate-Redirect-Url") {
+        return Err(format!(
+            "Unauthenticated: Redirect to {}",
+            auth_redirect_url.as_str().unwrap_or("unknown URL")
+        ).into());
+    }
+
+    // TODO: The URL is hardcoded to include max of 25 courses.
+    let course_list: CourseList = serde_json::from_value(response_json)?;
+    Ok(course_list)
 }
 
 
@@ -265,5 +308,57 @@ mod tests {
         assert_eq!(access_token, "example_access_token");
 
         _mock.assert();
+    }
+
+    /// Tests `get_course_list` by simulating a request to retrieve the user's registered course list.
+    /// Ensures the function correctly handles a successful response with valid course data.
+    #[tokio::test]
+    async fn test_get_course_list_mock_success() {
+        let mut server = mockito::Server::new_async().await;
+
+        let _mock = server.mock("GET", "/cursussen")
+            .match_header("authorization", "Bearer valid_token")
+            .with_status(200)
+            .with_body(
+                serde_json::json!({
+                    "items": [
+                        {"cursus": "CSE2310", "cursus_korte_naam": "Algorithm Design"},
+                        {"cursus": "CSE1000", "cursus_korte_naam": "Software Project"}
+                    ],
+                    "hasMore": false,
+                    "limit": 25,
+                    "offset": 0,
+                    "count": 1
+                }).to_string(),
+            )
+            .create();
+            
+        let course_url = &format!("{}/cursussen", server.url());
+        let result = get_course_list("valid_token", course_url).await;
+
+        assert!(result.is_ok());
+        let course_list = result.unwrap();
+        assert_eq!(course_list.items.len(), 2);
+        assert_eq!(course_list.items[0].cursus, "CSE2310");
+        assert_eq!(course_list.items[0].cursus_korte_naam, "Algorithm Design");
+        assert_eq!(course_list.items[1].cursus, "CSE1000");
+        assert_eq!(course_list.items[1].cursus_korte_naam, "Software Project");
+    }
+
+    /// Tests `get_course_list` by simulating a request to retrieve the user's registered course list.
+    /// Ensures the function correctly handles an authentication error.
+    #[tokio::test]
+    async fn test_get_course_list_mock_error() {
+        let mut server = mockito::Server::new_async().await;
+
+        let _mock_redirect = server.mock("GET", "/cursussen")
+            .with_status(401)
+            .with_body(r#"{ "Authenticate-Redirect-Url": "https://auth.url/reauthenticate" }"#)
+            .create();
+        
+        let url = format!("{}/cursussen", server.url());
+        let result = get_course_list("test-access-token", &url).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Redirect to https://auth.url/reauthenticate"));
     }
 }
