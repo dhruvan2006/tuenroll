@@ -7,6 +7,7 @@ const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/author
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
 
 pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/cursussen?toon_historie=N&limit=25";
+pub const TEST_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
 
 #[derive(Deserialize, Debug)]
 pub struct CourseList {
@@ -22,6 +23,20 @@ pub struct Course {
     id_cursus: u32,
     cursus: String,
     cursus_korte_naam: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TestList {
+    id_cursus: u32,
+    cursus: String,
+    cursus_korte_naam: String,
+    toetsen: Vec<Test>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Test {
+    id_cursus: u32,
+    id_toets_gelegenheid: u32,
 }
 
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
@@ -138,6 +153,25 @@ pub async fn get_course_list(access_token: &str, course_url: &str) -> Result<Cou
     // TODO: The URL is hardcoded to include max of 25 courses.
     let course_list: CourseList = serde_json::from_value(response_json)?;
     Ok(course_list)
+}
+
+/// Retrieves the list of tests availble for registration given the `course_id` using a JWT `access_token`.
+/// Returns a `TestList` if successful. If the `course_id` does not have a test open for enrollment
+/// the function returns an error
+pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &str) -> Result<TestList, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder().cookie_store(true).build()?;
+
+    let test_url = url.to_string() + course_id.to_string().as_str();
+    let response = client.get(test_url).bearer_auth(access_token).send().await?;
+    let response_json: Value = response.json().await?;
+
+    // URL endpoint returns JSON with failure if no tests open for enrollment
+    if response_json.get("failure").is_some() {
+        return Err(format!("No test open for enrollment for course_id: {}", course_id).into());
+    }
+
+    let test_list: TestList = serde_json::from_value(response_json)?;
+    Ok(test_list)
 }
 
 
@@ -363,5 +397,65 @@ mod tests {
         let result = get_course_list("test-access-token", &url).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Redirect to https://auth.url/reauthenticate"));
+    }
+
+    /// Tests `get_test_list_for_course` by simulating a successful request to retrieve tests available
+    /// for registration. Ensures the function parses and returns the expected `TestList`.
+    #[tokio::test]
+    async fn test_get_list_for_course_mock_success() {
+        let mut server = mockito::Server::new_async().await;
+
+        let _mock = server.mock("GET", "/tests/1234")
+            .match_header("authorization", "Bearer valid_token")
+            .with_status(200)
+            .with_body(serde_json::json!({
+                "toetsen": [
+                    {"id_cursus": 1, "id_toets_gelegenheid": 69},
+                    {"id_cursus": 1, "id_toets_gelegenheid": 420},
+                ],
+                "id_cursus": 1,
+                "cursus": "CSE1000",
+                "cursus_korte_naam": "Programming"
+            }).to_string())
+            .create();
+
+        let url = format!("{}/tests/", server.url());
+        let result = get_test_list_for_course("valid_token", 1234, &url).await;
+
+        assert!(result.is_ok());
+        let test_list = result.unwrap();
+        assert_eq!(test_list.toetsen.len(), 2);
+        assert_eq!(test_list.toetsen[0].id_cursus, 1);
+        assert_eq!(test_list.toetsen[0].id_toets_gelegenheid, 69);
+        assert_eq!(test_list.toetsen[1].id_toets_gelegenheid, 420);
+    }
+
+    /// Tests `get_test_list_for_course` by simulating a request where no tests are available for enrollment.
+    /// Ensures the function returns an error when `failure` is present in the response JSON.
+    #[tokio::test]
+    async fn test_get_list_for_course_mock_failure() {
+        let mut server = mockito::Server::new_async().await;
+
+        let _mock = server.mock("GET", "/tests/1234")
+            .match_header("authorization", "Bearer valid_token")
+            .with_status(200)
+            .with_body(serde_json::json!({
+                "result": "FAILED",
+                "failure": {
+                    "message": "Er is een fout opgetreden tijdens het aanroepen van de OSIRIS database",
+                    "code": 404,
+                    "detail": ""
+                }
+            }).to_string())
+            .create();
+
+        let url = format!("{}/tests/", server.url());
+        let result = get_test_list_for_course("valid_token", 1234, &url).await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "No test open for enrollment for course_id: 1234"
+        );
     }
 }
