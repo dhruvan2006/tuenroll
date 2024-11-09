@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
@@ -8,6 +8,7 @@ const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
 
 pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/cursussen?toon_historie=N&limit=25";
 pub const TEST_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
+pub const TEST_REGISTRATION_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
 
 #[derive(Deserialize, Debug)]
 pub struct CourseList {
@@ -25,18 +26,49 @@ pub struct Course {
     cursus_korte_naam: String,
 }
 
-#[derive(Deserialize, Debug)]
+// Registering for a course requires the entire test details
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TestList {
     id_cursus: u32,
+    studentnummer: String,
     cursus: String,
+    collegejaar: u32,
     cursus_korte_naam: String,
+    opmerking_cursus: String,
+    punten: u8,
+    punteneenheid: String,
+    coordinerend_onderdeel_oms: String,
+    faculteit_naam: String,
+    categorie_omschrijving: String,
+    cursustype_omschrijving: String,
+    onderdeel_van: String,
     toetsen: Vec<Test>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Test {
     id_cursus: u32,
     id_toets_gelegenheid: u32,
+    toets: String,
+    toets_omschrijving: String,
+    toetsvorm_omschrijving: String,
+    opmerking_cursus_toets: String,
+    aanvangsblok: String,
+    onderwijsvorm: String,
+    onderwijsvorm_omschrijving: String,
+    blok: String,
+    periode_omschrijving: String,
+    gelegenheid: u8,
+    beschikbare_plekken: Option<u32>,
+    toetsdatum: String,
+    dag: String,
+    tijd_vanaf: f64,
+    tijd_tm: f64,
+    locatie: String,
+    locatie_x: String,
+    locatie_y: String,
+    eerder_voldoende_behaald: String,
+    voorzieningen: Vec<String>,
 }
 
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
@@ -172,6 +204,30 @@ pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &
 
     let test_list: TestList = serde_json::from_value(response_json)?;
     Ok(test_list)
+}
+
+/// Registers for the list of test contained in `toetsen`.
+/// Returns `true` if registration was successful and `false` if the registration failed.
+/// `Err` is returned for any other issue.
+// TODO: How to test this method?
+pub async fn register_for_test(access_token: &str, toetsen: &TestList, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    println!("{:?}", toetsen);
+
+    let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+
+    let response = client.post(url).bearer_auth(access_token).json(toetsen).send().await?;
+    let json_response: Value = response.json().await?;
+
+    if let Some(statusmeldingen) = json_response.get("statusmeldingen") {
+        // If statusmeldingen is empty we were successful, else it reported failure
+        return if statusmeldingen.as_array().map_or(false, |arr| arr.is_empty()) {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    Err("Unexpected return format".into())
 }
 
 
@@ -409,13 +465,11 @@ mod tests {
             .match_header("authorization", "Bearer valid_token")
             .with_status(200)
             .with_body(serde_json::json!({
+                "id_cursus": 1234, "studentnummer": "s1234567", "cursus": "Software Testing", "collegejaar": 2024, "cursus_korte_naam": "ST", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
                 "toetsen": [
-                    {"id_cursus": 1, "id_toets_gelegenheid": 69},
-                    {"id_cursus": 1, "id_toets_gelegenheid": 420},
-                ],
-                "id_cursus": 1,
-                "cursus": "CSE1000",
-                "cursus_korte_naam": "Programming"
+                    {"id_cursus": 1234, "id_toets_gelegenheid": 69,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
+                    { "id_cursus": 1234, "id_toets_gelegenheid": 70, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-20", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
+                ]
             }).to_string())
             .create();
 
@@ -424,10 +478,24 @@ mod tests {
 
         assert!(result.is_ok());
         let test_list = result.unwrap();
+
+        // Verify course details
+        assert_eq!(test_list.id_cursus, 1234);
+        assert_eq!(test_list.cursus, "Software Testing");
+        assert_eq!(test_list.cursus_korte_naam, "ST");
+
+        // Verify test details
         assert_eq!(test_list.toetsen.len(), 2);
-        assert_eq!(test_list.toetsen[0].id_cursus, 1);
-        assert_eq!(test_list.toetsen[0].id_toets_gelegenheid, 69);
-        assert_eq!(test_list.toetsen[1].id_toets_gelegenheid, 420);
+
+        let first_test = &test_list.toetsen[0];
+        assert_eq!(first_test.id_toets_gelegenheid, 69);
+        assert_eq!(first_test.toets, "Final Exam");
+        assert_eq!(first_test.gelegenheid, 1);
+
+        let second_test = &test_list.toetsen[1];
+        assert_eq!(second_test.id_toets_gelegenheid, 70);
+        assert_eq!(second_test.toets, "Resit Exam");
+        assert_eq!(second_test.gelegenheid, 2);
     }
 
     /// Tests `get_test_list_for_course` by simulating a request where no tests are available for enrollment.

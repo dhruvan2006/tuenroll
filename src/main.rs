@@ -12,4 +12,12 @@ async fn main() {
 
     let tests = api::get_test_list_for_course(&access_token, 116283, api::TEST_COURSE_URL).await.expect("Fetching tests failed");
     println!("Tests: {:?}", tests);
+
+    // let registration_result = api::register_for_test(&access_token, &tests, api::TEST_REGISTRATION_URL).await;
+    //
+    // match registration_result {
+    //     Ok(true) => println!("Successfully registered for the test."),
+    //     Ok(false) => println!("Test registrdation encountered issues."),
+    //     Err(e) => println!("Failed to register for the test: {}", e),
+    // }
 }
