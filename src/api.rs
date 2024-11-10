@@ -102,6 +102,29 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
     Ok(access_token)
 }
 
+
+/// Gets the courses that the user is currently enrolled in
+/// Gets the exams that are available for enrollment based on the courses
+/// Signs up to those exams
+pub async fn register_for_tests(access_token: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Gets all the tests for all the courses that the user is currently enrolled in
+    let courses = get_course_list(&access_token, REGISTERED_COURSE_URL).await.expect("Fetching courses failed");  
+    let mut test_list: Vec<TestList> = Vec::new();
+    for course in courses.items {
+        let course_tests = get_test_list_for_course(access_token, course.id_cursus, TEST_COURSE_URL).await?;
+        if course_tests.is_none() {continue}
+        test_list.push(course_tests.expect("TestList not found"));
+    }
+
+    // Enroll for all the tests found
+    for test in test_list {
+        register_for_test(&access_token, &test, TEST_REGISTRATION_URL).await?;
+    }
+
+    Ok(())
+}
+
+
 /// Retrieves the user's registered course list from `course_url` using a JWT `access_token`.
 /// Returns a `CourseList` if successful. If the token is invalid or expired,
 /// it returns an error with a redirect URL for reauthentication
