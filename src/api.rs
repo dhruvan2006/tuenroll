@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::models::{CourseList, TestList};
 
@@ -130,7 +128,7 @@ pub async fn get_course_list(access_token: &str, course_url: &str) -> Result<Cou
 /// Retrieves the list of tests availble for registration given the `course_id` using a JWT `access_token`.
 /// Returns a `TestList` if successful. If the `course_id` does not have a test open for enrollment
 /// the function returns an error
-pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &str) -> Result<TestList, Box<dyn std::error::Error>> {
+pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &str) -> Result<Option<TestList>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
     let test_url = url.to_string() + course_id.to_string().as_str();
@@ -139,11 +137,12 @@ pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &
 
     // URL endpoint returns JSON with failure if no tests open for enrollment
     if response_json.get("failure").is_some() {
-        return Err(format!("No test open for enrollment for course_id: {}", course_id).into());
+        return Ok(None);
+        //return Err(format!("No test open for enrollment for course_id: {}", course_id).into());
     }
 
     let test_list: TestList = serde_json::from_value(response_json)?;
-    Ok(test_list)
+    Ok(Some(test_list))
 }
 
 /// Registers for the list of test contained in `toetsen`.
@@ -417,7 +416,7 @@ mod tests {
         let result = get_test_list_for_course("valid_token", 1234, &url).await;
 
         assert!(result.is_ok());
-        let test_list = result.unwrap();
+        let test_list = result.unwrap().unwrap();
 
         // Verify course details
         assert_eq!(test_list.id_cursus, 1234);
@@ -460,10 +459,7 @@ mod tests {
         let url = format!("{}/tests/", server.url());
         let result = get_test_list_for_course("valid_token", 1234, &url).await;
 
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "No test open for enrollment for course_id: 1234"
-        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
     }
 }
