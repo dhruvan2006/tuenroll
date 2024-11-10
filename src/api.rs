@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-    use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::models::{CourseList, TestList};
 
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
@@ -9,67 +10,6 @@ const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
 pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/cursussen?toon_historie=N&limit=25";
 pub const TEST_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
 pub const TEST_REGISTRATION_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
-
-#[derive(Deserialize, Debug)]
-pub struct CourseList {
-    count: u32,
-    hasMore: bool,
-    items: Vec<Course>,
-    limit: u32,
-    offset: u32,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Course {
-    id_cursus: u32,
-    cursus: String,
-    cursus_korte_naam: String,
-}
-
-// Registering for a course requires the entire test details
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TestList {
-    id_cursus: u32,
-    studentnummer: String,
-    cursus: String,
-    collegejaar: u32,
-    cursus_korte_naam: String,
-    opmerking_cursus: String,
-    punten: u8,
-    punteneenheid: String,
-    coordinerend_onderdeel_oms: String,
-    faculteit_naam: String,
-    categorie_omschrijving: String,
-    cursustype_omschrijving: String,
-    onderdeel_van: String,
-    toetsen: Vec<Test>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Test {
-    id_cursus: u32,
-    id_toets_gelegenheid: u32,
-    toets: String,
-    toets_omschrijving: String,
-    toetsvorm_omschrijving: String,
-    opmerking_cursus_toets: String,
-    aanvangsblok: String,
-    onderwijsvorm: String,
-    onderwijsvorm_omschrijving: String,
-    blok: String,
-    periode_omschrijving: String,
-    gelegenheid: u8,
-    beschikbare_plekken: Option<u32>,
-    toetsdatum: String,
-    dag: String,
-    tijd_vanaf: f64,
-    tijd_tm: f64,
-    locatie: String,
-    locatie_x: String,
-    locatie_y: String,
-    eerder_voldoende_behaald: String,
-    voorzieningen: Vec<String>,
-}
 
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
 /// This token can be used for accessing resources at `https://my.tudelft.nl/`.
