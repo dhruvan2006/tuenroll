@@ -3,11 +3,33 @@ mod models;
 use std::io;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
+use clap::{Parser, Subcommand, Args};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
     username: String,
     password: String,
+}
+
+#[derive(Parser)]
+#[command(name = "Rodvdc CLI", version, about = "CLI for automatically enrolling for tests")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Starts a periodic background test checking process.
+    Start {
+        /// Interval in hours for periodic checking
+        #[arg(short, long, default_value_t = 24)]
+        interval: u32,
+    },
+    /// Stops any running background test checking process.
+    Stop,
+    /// Runs the check process one time and displays results.
+    Run,
 }
 
 // TODO: Give a finalized name for the directory
@@ -16,6 +38,14 @@ const CONFIG_FILE: &str = "config.json";
 
 #[tokio::main]
 async fn main() {
+    let cli = Cli::parse();
+
+    match &cli.command {
+        Commands::Run => println!("Running rodvdc cli"),
+        Commands::Start { interval } => println!("Starting rodvdc cli with interval {}", interval),
+        Commands::Stop => println!("Stopping rodvdc cli"),
+    }
+
     let credentials = get_credentials(get_config_path(CONFIG_DIR, CONFIG_FILE));
   
     let access_token = api::get_access_token(&credentials.username.as_str(), &credentials.password.as_str()).await.expect("Fetching access token failed");
