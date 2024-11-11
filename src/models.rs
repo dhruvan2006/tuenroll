@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct CourseList {
     pub count: u32,
@@ -10,6 +11,7 @@ pub struct CourseList {
     pub offset: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct Course {
     pub id_cursus: u32,

@@ -3,7 +3,7 @@ mod models;
 use std::io;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
-use clap::{Parser, Subcommand, Args};
+use clap::{Parser, Subcommand};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
