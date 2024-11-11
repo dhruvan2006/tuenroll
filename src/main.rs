@@ -41,29 +41,34 @@ async fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Run => println!("Running rodvdc cli"),
-        Commands::Start { interval } => println!("Starting rodvdc cli with interval {}", interval),
+        Commands::Run => {
+            println!("Running rodvdc cli");
+            run_auto_sign_up().await;
+        },
+        Commands::Start { interval } => {
+            println!("Starting rodvdc cli with interval {}", interval);
+            run_auto_sign_up().await;
+        },
         Commands::Stop => println!("Stopping rodvdc cli"),
     }
+}
 
+/// Runs the auto signup fully once
+/// Gets the credentials, the access token 
+/// Automatically signs up for all the tests
+/// Prints the result of execution
+async fn run_auto_sign_up() {
     let credentials = get_credentials(get_config_path(CONFIG_DIR, CONFIG_FILE));
-  
     let access_token = api::get_access_token(&credentials.username.as_str(), &credentials.password.as_str()).await.expect("Fetching access token failed");
-    println!("Access token: {}", access_token);
-
-    let courses = api::get_course_list(&access_token, api::REGISTERED_COURSE_URL).await.expect("Fetching courses failed");
-    println!("Courses: {:?}", courses);
-
-    let tests = api::get_test_list_for_course(&access_token, 116283, api::TEST_COURSE_URL).await.expect("Fetching tests failed");
-    println!("Tests: {:?}", tests);
-
-    // let registration_result = api::register_for_test(&access_token, &tests, api::TEST_REGISTRATION_URL).await;
-    //
-    // match registration_result {
-    //     Ok(true) => println!("Successfully registered for the test."),
-    //     Ok(false) => println!("Test registrdation encountered issues."),
-    //     Err(e) => println!("Failed to register for the test: {}", e),
-    // }
+    let registration_result = api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL)
+        .await 
+        .expect("An error occured");
+    if registration_result.is_empty() {
+        println!("No exams were enrolled for");
+    }
+    else {
+        println!("The following exams were enrolled for:\n {:#?}", registration_result)
+    }
 }
 
 /// Returns the path to the user's home directory, combined with a hidden directory `config_dir`
