@@ -52,7 +52,7 @@ async fn main() {
     println!("Access token: {}", access_token);
 
     // Uncomment to register for all tests with courses that you are currently enrolled in
-    //api::register_for_tests(&access_token).await.expect("msg");
+    //api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL).await.expect("msg");
 
     let courses = api::get_course_list(&access_token, api::REGISTERED_COURSE_URL).await.expect("Fetching courses failed");
     println!("Courses: {:?}", courses);
