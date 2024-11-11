@@ -41,8 +41,14 @@ async fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Run => println!("Running rodvdc cli"),
-        Commands::Start { interval } => println!("Starting rodvdc cli with interval {}", interval),
+        Commands::Run => {
+            println!("Running rodvdc cli");
+            run_auto_sign_up().await;
+        },
+        Commands::Start { interval } => {
+            println!("Starting rodvdc cli with interval {}", interval);
+            run_auto_sign_up().await;
+        },
         Commands::Stop => println!("Stopping rodvdc cli"),
     }
 
@@ -67,6 +73,22 @@ async fn main() {
     //     Ok(false) => println!("Test registrdation encountered issues."),
     //     Err(e) => println!("Failed to register for the test: {}", e),
     // }
+}
+
+/// Runs the auto signup fully once
+/// Gets the credentials, the access token 
+/// Automatically signs up for all the tests
+/// Prints the result of execution
+async fn run_auto_sign_up() {
+    let credentials = get_credentials(get_config_path(CONFIG_DIR, CONFIG_FILE));
+    let access_token = api::get_access_token(&credentials.username.as_str(), &credentials.password.as_str()).await.expect("Fetching access token failed");
+    let registration_result = api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL).await.expect("msg");
+    if registration_result == () {
+        println!("Registration Succesful");
+    }
+    else {
+        println!("An error occured in the process")
+    }
 }
 
 /// Returns the path to the user's home directory, combined with a hidden directory `config_dir`
