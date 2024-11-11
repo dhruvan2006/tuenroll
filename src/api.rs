@@ -109,19 +109,15 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
 pub async fn register_for_tests(access_token: &str, registered_course_url: &str, test_course_url: &str, test_registration_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Gets all the tests for all the courses that the user is currently enrolled in
     let courses = get_course_list(&access_token, registered_course_url).await.expect("Fetching courses failed");  
-    println!("{:#?}", courses);
     let mut test_list: Vec<TestList> = Vec::new();
     for course in courses.items {
-        println!("{:#?}", course);
         let course_tests = get_test_list_for_course(access_token, course.id_cursus, test_course_url).await?;
-        println!("{:#?}", "Got tests");
         if course_tests.is_none() {continue}
         test_list.push(course_tests.expect("TestList not found"));
     }
 
     // Enroll for all the tests found
     for test in test_list {
-        println!("{:#?}", test);
         register_for_test(&access_token, &test, &test_registration_url).await?;
     }
 
@@ -160,9 +156,7 @@ pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &
 
     let test_url = url.to_string() + course_id.to_string().as_str();
     let response = client.get(test_url).bearer_auth(access_token).send().await?;
-    println!("{:#?}", response);
     let response_json: Value = response.json().await?;
-    println!("{:#?}", "json received");
 
     // URL endpoint returns JSON with failure if no tests open for enrollment
     if response_json.get("failure").is_some() {
@@ -179,14 +173,11 @@ pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &
 /// `Err` is returned for any other issue.
 // TODO: How to test this method?
 pub async fn register_for_test(access_token: &str, toetsen: &TestList, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
-    println!("{:?}", toetsen);
 
     let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
 
     let response = client.post(url).bearer_auth(access_token).json(toetsen).send().await?;
-    println!("Response from registration:\n{:#?}", response);
     let json_response: Value = response.json().await?;
-    println!("Json response received");
 
     if let Some(statusmeldingen) = json_response.get("statusmeldingen") {
         // If statusmeldingen is empty we were successful, else it reported failure
@@ -584,8 +575,6 @@ mod tests {
         let test_url = &format!("{}/tests/", server.url());
         let test_reg_url = &format!("{}/test-reg", server.url());
         let result = register_for_tests("valid_token", &course_url, &test_url, &test_reg_url).await;
-
-        println!("{:#?}", result);
 
         assert!(result.is_ok());
         algorithm_test_registration.assert();
