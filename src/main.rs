@@ -43,7 +43,7 @@ enum Commands {
 // TODO: Give a finalized name for the directory
 const CONFIG_DIR: &str = ".rodvdc";
 const CONFIG_FILE: &str = "config.json";
-const PID_FILE: &str = ".process.json";
+const PID_FILE: &str = "process.json";
 
 #[tokio::main]
 async fn main() {
@@ -55,17 +55,16 @@ async fn main() {
             run_auto_sign_up().await;
         },
         Commands::Start { interval } => {
-            run_auto_sign_up().await;
+            //run_auto_sign_up().await;
 
             // WARNING: Do not have any print statements or the the command and process will stop working detached
-            println!("Starting daemon");
             if env::var("DAEMONIZED").is_err() {
                 //  Check that no other process is running
                 if process_is_running() {
                     println!("Another process is already running");
                     return;
                 }
-
+                println!("Starting rodvdc cli with interval {}", interval);
                 println!("Spawning daemon");
                 let child = Command::new(env::current_exe().unwrap())
                     .args(&["start", format!("--interval={}", interval).as_str()])
@@ -77,7 +76,6 @@ async fn main() {
                 return
             }
             else {
-                println!("Starting rodvdc cli with interval {}", interval);
                 run_loop(interval).await;
             }
         },
@@ -103,7 +101,7 @@ async fn run_loop(interval: &u32) {
 }
 
 fn get_stored_pid() -> Option<u32> {
-    if let Ok(pid) = std::fs::read_to_string(PID_FILE) {
+    if let Ok(pid) = std::fs::read_to_string(get_config_path(CONFIG_DIR, PID_FILE)) {
         if let Ok(pid) = serde_json::from_str::<PID>(&pid) {
             return pid.pid;
         }
@@ -111,14 +109,25 @@ fn get_stored_pid() -> Option<u32> {
     return None;
 }
 
+
 fn stop_program() -> Option<u32> {
     let pid = get_stored_pid();
     if pid.is_none() {return None};
     let pid = pid.unwrap();
+
+    #[cfg(target_os = "windows")]
+    let kill = Command::new("taskkill").args(&["/PID", &pid.to_string(), "/F"]).spawn();
+
+    #[cfg(not(target_os = "windows"))]
     let kill = Command::new("kill").arg(pid.to_string()).spawn();
-    kill.expect("Process couldn't be killed");
+
+    if let Err(e) = kill {
+        eprintln!("Process couldn't be killed: {}", e);
+        return None;
+    }
+
     store_pid(None);
-    return Some(pid);
+    Some(pid)
 }
 
 fn process_is_running() -> bool {
@@ -167,7 +176,7 @@ fn get_config_path(config_dir: &str, config_file: &str) -> std::path::PathBuf {
 fn store_pid(process_id: Option<u32>) {
     let pid = PID {pid: process_id};
     let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
-    let _ = std::fs::write(PID_FILE, pid);
+    let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
 }
 
 /// Fetches the user's credentials. If the credentials are already stored in the config file,
