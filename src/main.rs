@@ -12,12 +12,19 @@ struct Credentials {
     password: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct PID {
+    pid: Option<u32>
+}
+
 #[derive(Parser)]
 #[command(name = "Rodvdc CLI", version, about = "CLI for automatically enrolling for tests")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
+
+
 
 #[derive(Subcommand)]
 enum Commands {
@@ -36,6 +43,7 @@ enum Commands {
 // TODO: Give a finalized name for the directory
 const CONFIG_DIR: &str = ".rodvdc";
 const CONFIG_FILE: &str = "config.json";
+const PID_FILE: &str = ".process.json";
 
 #[tokio::main]
 async fn main() {
@@ -52,12 +60,19 @@ async fn main() {
             // WARNING: Do not have any print statements or the the command and process will stop working detached
             println!("Starting daemon");
             if env::var("DAEMONIZED").is_err() {
+                //  Check that no other process is running
+                if process_is_running() {
+                    println!("Another process is already running");
+                    return;
+                }
+
                 println!("Spawning daemon");
-                let _child = Command::new(env::current_exe().unwrap())
+                let child = Command::new(env::current_exe().unwrap())
                     .args(&["start", format!("--interval={}", interval).as_str()])
                     .env("DAEMONIZED", "1")
                     .spawn()
                     .unwrap();
+                store_pid(Some(child.id()));
                 println!("Daemon spawned");
                 return
             }
@@ -67,7 +82,14 @@ async fn main() {
             }
         },
         Commands::Stop => {
-            println!("Stopping rodvdc cli")
+            println!("Stopping rodvdc cli");
+            let stopped_process = stop_program();
+            if stopped_process.is_none() {
+                println!("No process was running");
+            }
+            else {
+                println!("Process with pid {} was stopped", stopped_process.unwrap());
+            }
         },
     }
 }
@@ -78,6 +100,38 @@ async fn run_loop(interval: &u32) {
         let duration = time::Duration::from_secs((interval*3600).into());
         thread::sleep(duration);
     }
+}
+
+fn get_stored_pid() -> Option<u32> {
+    if let Ok(pid) = std::fs::read_to_string(PID_FILE) {
+        if let Ok(pid) = serde_json::from_str::<PID>(&pid) {
+            return pid.pid;
+        }
+    }
+    return None;
+}
+
+fn stop_program() -> Option<u32> {
+    let pid = get_stored_pid();
+    if pid.is_none() {return None};
+    let pid = pid.unwrap();
+    let kill = Command::new("kill").arg(pid.to_string()).spawn();
+    kill.expect("Process couldn't be killed");
+    store_pid(None);
+    return Some(pid);
+}
+
+fn process_is_running() -> bool {
+    let stored_pid = get_stored_pid();
+    if stored_pid.is_none() {return false};
+    let process = Command::new("ps").args(["-p", stored_pid.unwrap().to_string().as_str()]).output().expect("Error occured when running ps -p $PID");
+    if process.status.success() {
+        return true;
+    }
+    else {
+        store_pid(None);
+    }
+    return false;
 }
 
 
@@ -108,6 +162,12 @@ fn get_config_path(config_dir: &str, config_file: &str) -> std::path::PathBuf {
         // TODO: Better error handling
         panic!("Could not find home directory.");
     }
+}
+
+fn store_pid(process_id: Option<u32>) {
+    let pid = PID {pid: process_id};
+    let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
+    let _ = std::fs::write(PID_FILE, pid);
 }
 
 /// Fetches the user's credentials. If the credentials are already stored in the config file,
