@@ -1,9 +1,10 @@
 mod api;
 mod models;
-use std::io;
+use std::{env, io};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
+use std::{thread, time, process::Command};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
@@ -46,12 +47,39 @@ async fn main() {
             run_auto_sign_up().await;
         },
         Commands::Start { interval } => {
-            println!("Starting rodvdc cli with interval {}", interval);
             run_auto_sign_up().await;
+
+            // WARNING: Do not have any print statements or the the command and process will stop working detached
+            println!("Starting daemon");
+            if env::var("DAEMONIZED").is_err() {
+                println!("Spawning daemon");
+                let _child = Command::new(env::current_exe().unwrap())
+                    .args(&["start", format!("--interval={}", interval).as_str()])
+                    .env("DAEMONIZED", "1")
+                    .spawn()
+                    .unwrap();
+                println!("Daemon spawned");
+                return
+            }
+            else {
+                println!("Starting rodvdc cli with interval {}", interval);
+                run_loop(interval).await;
+            }
         },
-        Commands::Stop => println!("Stopping rodvdc cli"),
+        Commands::Stop => {
+            println!("Stopping rodvdc cli")
+        },
     }
 }
+
+async fn run_loop(interval: &u32) {
+    loop {
+        run_auto_sign_up().await;
+        let duration = time::Duration::from_secs((interval*3600).into());
+        thread::sleep(duration);
+    }
+}
+
 
 /// Runs the auto signup fully once
 /// Gets the credentials, the access token 
@@ -64,10 +92,10 @@ async fn run_auto_sign_up() {
         .await 
         .expect("An error occured");
     if registration_result.is_empty() {
-        println!("No exams were enrolled for");
+        //println!("No exams were enrolled for");
     }
     else {
-        println!("The following exams were enrolled for:\n {:#?}", registration_result)
+        //println!("The following exams were enrolled for:\n {:#?}", registration_result)
     }
 }
 
