@@ -265,10 +265,31 @@ mod tests {
         assert_eq!(expected_path, config_path);
     }
 
+    #[test]
+    fn test_save_credentials() {
+        let temp_dir = env::temp_dir();
+        let config_path = temp_dir.join(CONFIG_FILE);
+
+        let credentials = Credentials {
+            username: "testuser".to_string(),
+            password: "testpassword".to_string(),
+            access_token: Some("testtoken".to_string()),
+        };
+
+        save_credentials(&credentials, &config_path);
+
+        let saved_data = std::fs::read_to_string(&config_path).unwrap();
+        let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
+
+        assert_eq!(saved_credentials.username, "testuser");
+        assert_eq!(saved_credentials.password, "testpassword");
+        assert_eq!(saved_credentials.access_token.unwrap(), "testtoken");
+    }
+
     /// Set up a temp `CONFIG_FILE` file with test credentials to assert whether `get_credentials()`
     /// can read from the file and return the accurate `username` and `password`
     #[test]
-    fn test_load_credentials_from_path() {
+    fn test_load_credentials_with_valid_file() {
         let temp_dir = std::env::temp_dir();
         let config_file_path = temp_dir.join(CONFIG_FILE);
 
