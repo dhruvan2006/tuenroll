@@ -1,14 +1,20 @@
 mod api;
 mod models;
-use std::io;
+use std::{env, io};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
+use std::{thread, time, process::Command};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
     username: String,
     password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PID {
+    pid: Option<u32>
 }
 
 #[derive(Parser)]
@@ -17,6 +23,8 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
+
+
 
 #[derive(Subcommand)]
 enum Commands {
@@ -35,6 +43,7 @@ enum Commands {
 // TODO: Give a finalized name for the directory
 const CONFIG_DIR: &str = ".rodvdc";
 const CONFIG_FILE: &str = "config.json";
+const PID_FILE: &str = "process.json";
 
 #[tokio::main]
 async fn main() {
@@ -46,12 +55,94 @@ async fn main() {
             run_auto_sign_up().await;
         },
         Commands::Start { interval } => {
-            println!("Starting rodvdc cli with interval {}", interval);
             run_auto_sign_up().await;
+
+            // WARNING: Do not have any print statements or the the command and process will stop working detached
+            if env::var("DAEMONIZED").is_err() {
+                //  Check that no other process is running
+                if process_is_running() {
+                    println!("Another process is already running");
+                    return;
+                }
+                println!("Starting rodvdc cli with interval {}", interval);
+                println!("Spawning daemon");
+                let child = Command::new(env::current_exe().unwrap())
+                    .args(&["start", format!("--interval={}", interval).as_str()])
+                    .env("DAEMONIZED", "1")
+                    .spawn()
+                    .unwrap();
+                store_pid(Some(child.id()));
+                println!("Daemon spawned");
+                return
+            }
+            else {
+                run_loop(interval).await;
+            }
         },
-        Commands::Stop => println!("Stopping rodvdc cli"),
+        Commands::Stop => {
+            println!("Stopping rodvdc cli");
+            let stopped_process = stop_program();
+            if stopped_process.is_none() {
+                println!("No process was running");
+            }
+            else {
+                println!("Process with pid {} was stopped", stopped_process.unwrap());
+            }
+        },
     }
 }
+
+async fn run_loop(interval: &u32) {
+    loop {
+        run_auto_sign_up().await;
+        let duration = time::Duration::from_secs((interval*3600).into());
+        thread::sleep(duration);
+    }
+}
+
+fn get_stored_pid() -> Option<u32> {
+    if let Ok(pid) = std::fs::read_to_string(get_config_path(CONFIG_DIR, PID_FILE)) {
+        if let Ok(pid) = serde_json::from_str::<PID>(&pid) {
+            return pid.pid;
+        }
+    }
+    return None;
+}
+
+
+fn stop_program() -> Option<u32> {
+    let pid = get_stored_pid();
+    if pid.is_none() {return None};
+    let pid = pid.unwrap();
+
+    #[cfg(target_os = "windows")]
+    let kill = Command::new("taskkill").args(&["/PID", &pid.to_string(), "/F"]).spawn();
+
+    #[cfg(not(target_os = "windows"))]
+    let kill = Command::new("kill").arg(pid.to_string()).spawn();
+
+    if let Err(e) = kill {
+        eprintln!("Process couldn't be killed: {}", e);
+        return None;
+    }
+
+    store_pid(None);
+    Some(pid)
+}
+
+fn process_is_running() -> bool {
+    let stored_pid = get_stored_pid();
+    if stored_pid.is_none() {return false};
+    let process = Command::new("ps").args(["-p", stored_pid.unwrap().to_string().as_str()]).output().expect("Error occured when running ps -p $PID");
+    if process.status.success() {
+        return true;
+    }
+    else {
+        store_pid(None);
+    }
+    return false;
+}
+
 
 /// Runs the auto signup fully once
 /// Gets the credentials, the access token 
@@ -64,10 +155,10 @@ async fn run_auto_sign_up() {
         .await 
         .expect("An error occured");
     if registration_result.is_empty() {
-        println!("No exams were enrolled for");
+        //println!("No exams were enrolled for");
     }
     else {
-        println!("The following exams were enrolled for:\n {:#?}", registration_result)
+        //println!("The following exams were enrolled for:\n {:#?}", registration_result)
     }
 }
 
@@ -80,6 +171,12 @@ fn get_config_path(config_dir: &str, config_file: &str) -> std::path::PathBuf {
         // TODO: Better error handling
         panic!("Could not find home directory.");
     }
+}
+
+fn store_pid(process_id: Option<u32>) {
+    let pid = PID {pid: process_id};
+    let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
+    let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
 }
 
 /// Fetches the user's credentials. If the credentials are already stored in the config file,
