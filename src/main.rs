@@ -55,7 +55,7 @@ async fn main() {
             run_auto_sign_up().await;
         },
         Commands::Start { interval } => {
-            //run_auto_sign_up().await;
+            run_auto_sign_up().await;
 
             // WARNING: Do not have any print statements or the the command and process will stop working detached
             if env::var("DAEMONIZED").is_err() {
