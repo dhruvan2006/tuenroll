@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde_json::Value;
-use crate::models::{CourseList, Test, TestList};
+use crate::models::{CourseList, TestList};
 
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
@@ -106,7 +106,7 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
 /// Gets the courses that the user is currently enrolled in
 /// Gets the exams that are available for enrollment based on the courses
 /// Signs up to those exams
-pub async fn register_for_tests(access_token: &str, registered_course_url: &str, test_course_url: &str, test_registration_url: &str) -> Result<(Vec<TestList>), Box<dyn std::error::Error>> {
+pub async fn register_for_tests(access_token: &str, registered_course_url: &str, test_course_url: &str, test_registration_url: &str) -> Result<Vec<TestList>, Box<dyn std::error::Error>> {
     // Gets all the tests for all the courses that the user is currently enrolled in
     let courses = get_course_list(&access_token, registered_course_url).await.expect("Fetching courses failed");  
     let mut test_list: Vec<TestList> = Vec::new();
