@@ -9,6 +9,26 @@ pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/st
 pub const TEST_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
 pub const TEST_REGISTRATION_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
 
+/// Verifies if the user is authenticated by checking for the presence of a redirect URL
+/// indicating the need for authentication. If the response does not contain an
+/// authentication redirect URL, it is assumed the user is authenticated.
+pub async fn is_user_authenticated(
+    access_token: &str,
+    url: &str
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder().cookie_store(true).build()?;
+
+    let response = client.get(url).bearer_auth(access_token).send().await?;
+    let response_json: Value = response.json().await?;
+
+    // If "Authenticate-Redirect-Url" exists, the user is not authenticated
+    if response_json.get("Authenticate-Redirect-Url").is_some() {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
 /// This token can be used for accessing resources at `https://my.tudelft.nl/`.
 /// 
@@ -96,7 +116,7 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
     let json_response: Value = response.json().await?;
     let access_token = json_response["access_token"]
         .as_str()
-        .ok_or("access_token not found or invalid type")?
+        .expect("access_token not found or invalid type")
         .to_string();
 
     Ok(access_token)
@@ -198,6 +218,42 @@ pub async fn register_for_test(access_token: &str, toetsen: &TestList, url: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_is_user_authenticated_mock_authenticated() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/test")
+            .with_status(200)
+            .with_header("Authorization", "Bearer access_token")
+            .with_body(serde_json::json!({
+                "random": "json test body"
+            }).to_string())
+            .create();
+
+        let url = format!("{}/test", server.url());
+        let response = is_user_authenticated("access_token", &*url).await.unwrap();
+
+        assert!(response);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_is_user_authenticated_mock_unauthenticated() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/test")
+            .with_status(200)
+            .with_header("Authorization", "Bearer access_token")
+            .with_body(serde_json::json!({
+                "Authenticate-Redirect-Url": "doesn't matter"
+            }).to_string())
+            .create();
+
+        let url = format!("{}/test", server.url());
+        let response = is_user_authenticated("access_token", &*url).await.unwrap();
+
+        assert!(!response);
+        mock.assert();
+    }
 
     /// Simulates an OAuth flow by mocking `/oauth/authorize` to redirect to `/final-destination`.
     /// Verifies that `initiate_authorization` correctly follows a 302 redirect and ensures that the response body matches the body of the redirected URL.

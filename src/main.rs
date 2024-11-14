@@ -13,6 +13,7 @@ use colored::*;
 struct Credentials {
     username: String,
     password: String,
+    access_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -174,8 +175,10 @@ fn process_is_running() -> bool {
 /// Prints the result of execution
 async fn run_auto_sign_up() {
     info!("Fetching credentials from config file.");
-    let credentials = get_credentials(get_config_path(CONFIG_DIR, CONFIG_FILE));
-    let access_token = api::get_access_token(&credentials.username.as_str(), &credentials.password.as_str()).await.expect("Fetching access token failed");
+    let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
+    let credentials = get_valid_credentials(&config_path).await;
+    let access_token = credentials.access_token.expect("Access token should be present");
+
     let registration_result = api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL)
         .await 
         .expect("An error occured");
@@ -207,11 +210,37 @@ fn store_pid(process_id: Option<u32>) {
     let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
 }
 
-/// Fetches the user's credentials. If the credentials are already stored in the config file,
-/// they are read and returned. If not, the user is prompted to input them, which are then saved
-/// to the config file for future use.
-// TODO: Test get_credentials() with input from stdin
-fn get_credentials(config_path: std::path::PathBuf) -> Credentials {
+/// Retrieves valid credentials with an access token.
+/// If the access token is missing or invalid, it fetches a new one and updates the config.
+async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
+    // Retrieve stored credentials (with or without access token)
+    let mut credentials = load_credentials(config_path);
+
+    // If there's an access token, check if it's still valid
+    if let Some(ref token) = credentials.access_token {
+        let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
+            .await
+            .unwrap_or(false);
+
+        if is_valid {
+            return credentials;
+        }
+    }
+
+    // Access token is missing or invalid; fetch a new one
+    let new_token = api::get_access_token(&credentials.username, &credentials.password)
+        .await
+        .expect("Failed to fetch access token");
+    credentials.access_token = Some(new_token.clone());
+
+    save_credentials(&credentials, config_path);
+
+    credentials
+}
+
+/// Loads credentials from config file or prompts the user to enter them if missing.
+// TODO: Test load_credentials() with input from stdin
+fn load_credentials(config_path: &std::path::Path) -> Credentials {
     if let Ok(data) = std::fs::read_to_string(&config_path) {
         if let Ok(credentials) = serde_json::from_str::<Credentials>(&data) {
             return credentials;
@@ -231,15 +260,20 @@ fn get_credentials(config_path: std::path::PathBuf) -> Credentials {
     let credentials = Credentials {
         username: username.trim().to_string(),
         password: password.trim().to_string(),
+        access_token: None,
     };
 
-    std::fs::create_dir_all(config_path.parent().expect("Failed to get parent directory"))
-        .expect("Failed to create config directory");
-
-    let serialized = serde_json::to_string(&credentials).expect("Failed to serialize credentials");
-    std::fs::write(config_path, serialized).expect("Failed to save credentials");
+    save_credentials(&credentials, &config_path);
 
     credentials
+}
+
+/// Saves updated credentials to the config file
+fn save_credentials(credentials: &Credentials, config_path: &std::path::Path) {
+    let serialized = serde_json::to_string(&credentials).expect("Failed to serialize credentials");
+    std::fs::create_dir_all(config_path.parent().expect("Failed to get parent directory"))
+        .expect("Failed to create config directory");
+    std::fs::write(config_path, serialized).expect("Failed to save credentials");
 }
 
 #[cfg(test)]
@@ -259,16 +293,38 @@ mod tests {
         assert_eq!(expected_path, config_path);
     }
 
+    #[test]
+    fn test_save_credentials() {
+        let temp_dir = env::temp_dir();
+        let config_path = temp_dir.join(CONFIG_FILE);
+
+        let credentials = Credentials {
+            username: "testuser".to_string(),
+            password: "testpassword".to_string(),
+            access_token: Some("testtoken".to_string()),
+        };
+
+        save_credentials(&credentials, &config_path);
+
+        let saved_data = std::fs::read_to_string(&config_path).unwrap();
+        let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
+
+        assert_eq!(saved_credentials.username, "testuser");
+        assert_eq!(saved_credentials.password, "testpassword");
+        assert_eq!(saved_credentials.access_token.unwrap(), "testtoken");
+    }
+
     /// Set up a temp `CONFIG_FILE` file with test credentials to assert whether `get_credentials()`
     /// can read from the file and return the accurate `username` and `password`
     #[test]
-    fn test_get_credentials_from_path() {
+    fn test_load_credentials_with_valid_file() {
         let temp_dir = std::env::temp_dir();
         let config_file_path = temp_dir.join(CONFIG_FILE);
 
         let credentials = Credentials {
             username: "testuser".to_string(),
             password: "testpassword".to_string(),
+            access_token: None
         };
         let serialized = serde_json::to_string(&credentials)
             .expect("Failed to serialize credentials");
@@ -276,7 +332,7 @@ mod tests {
         let mut file = std::fs::File::create(&config_file_path).unwrap();
         file.write_all(serialized.as_bytes()).unwrap();
 
-        let result = get_credentials(config_file_path);
+        let result = load_credentials(&*config_file_path);
 
         assert_eq!(result.username, "testuser");
         assert_eq!(result.password, "testpassword");
