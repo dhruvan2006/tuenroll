@@ -8,6 +8,7 @@ use std::{thread, time, process::Command};
 use log::{info, error, warn};
 use simplelog::*;
 use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
@@ -218,12 +219,31 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
     let mut credentials = load_credentials(config_path);
 
     loop {
+        // Only show the spinner if not in daemonized mode
+        let pb = if env::var("DAEMONIZED").is_err() {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                    .template("{spinner:.green} {msg}")
+                    .unwrap(),
+            );
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.set_message("Validating credentials...");
+            Some(pb)
+        } else {
+            None
+        };
+
         // If there's an access token, check if it's still valid
         if let Some(ref token) = credentials.access_token {
             let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
                 .await
                 .unwrap_or(false);
 
+            if let Some(pb) = pb.as_ref() {
+                pb.finish_and_clear();
+            }
             if is_valid {
                 return credentials;
             }
@@ -234,9 +254,16 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
             Ok(new_token) => {
                 credentials.access_token = Some(new_token);
                 save_credentials(&credentials, config_path);
+                if let Some(pb) = pb.as_ref() {
+                    pb.finish_and_clear();
+                }
+                println!("{}", "Success: Credentials are valid!".green().bold());
                 return credentials;
             }
             Err(_) => {
+                if let Some(pb) = pb.as_ref() {
+                    pb.finish_and_clear();
+                }
                 eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
                 credentials = prompt_for_credentials();
             }
