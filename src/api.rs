@@ -70,7 +70,18 @@ async fn submit_login_form(client: &reqwest::Client, username: &str, password: &
     form_data = form_data.text("AuthState", auth_state.to_string());
 
     let response = client.post(url).multipart(form_data).send().await?;
-    Ok(response.text().await?)
+    let body = response.text().await?;
+
+    // Checks whether the username/password was correct by checking if
+    // form is in the response HTML
+    let document = scraper::Html::parse_document(&body);
+    let form_selector = scraper::Selector::parse("form[action='https://osilogin.tudelft.nl/osirissaml/saml2/acs/osiris-student']")
+        .expect("Invalid form selector");
+    if document.select(&form_selector).next().is_some() {
+        return Ok(body);
+    }
+
+    Err("Login failed: Incorrect username or password or form action not found.".into())
 }
 
 fn extract_saml_response(body: &str) -> (String, String, String) {
@@ -326,16 +337,18 @@ mod tests {
         let password = "testpassword";
         let auth_state = "test_auth_state";
 
+        let original_body = "<form action='https://osilogin.tudelft.nl/osirissaml/saml2/acs/osiris-student'></form>";
+
         let _mock = server.mock("POST", "/submit_login")
             .with_status(200)
-            .with_body("Login successful")
+            .with_body(original_body)
             .create();
 
         let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
         let request_url = format!("{}/submit_login", url);
         let body = submit_login_form(&client, username, password, &request_url, auth_state).await.expect("Failed to submit login form");
 
-        assert_eq!(body, "Login successful");
+        assert_eq!(body, original_body);
 
         _mock.assert();
     }

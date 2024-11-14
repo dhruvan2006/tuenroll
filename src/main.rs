@@ -58,6 +58,7 @@ async fn main() {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
             run_auto_sign_up().await;
+            println!("{}", "Success: Exam check ran.".green().bold());
         },
         Commands::Start { interval } => {
             run_auto_sign_up().await;
@@ -216,26 +217,31 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
     // Retrieve stored credentials (with or without access token)
     let mut credentials = load_credentials(config_path);
 
-    // If there's an access token, check if it's still valid
-    if let Some(ref token) = credentials.access_token {
-        let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
-            .await
-            .unwrap_or(false);
+    loop {
+        // If there's an access token, check if it's still valid
+        if let Some(ref token) = credentials.access_token {
+            let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
+                .await
+                .unwrap_or(false);
 
-        if is_valid {
-            return credentials;
+            if is_valid {
+                return credentials;
+            }
+        }
+
+        // Access token is missing or invalid; prompt for correct credentials if needed
+        match api::get_access_token(&credentials.username, &credentials.password).await {
+            Ok(new_token) => {
+                credentials.access_token = Some(new_token);
+                save_credentials(&credentials, config_path);
+                return credentials;
+            }
+            Err(_) => {
+                eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
+                credentials = prompt_for_credentials();
+            }
         }
     }
-
-    // Access token is missing or invalid; fetch a new one
-    let new_token = api::get_access_token(&credentials.username, &credentials.password)
-        .await
-        .expect("Failed to fetch access token");
-    credentials.access_token = Some(new_token.clone());
-
-    save_credentials(&credentials, config_path);
-
-    credentials
 }
 
 /// Loads credentials from config file or prompts the user to enter them if missing.
@@ -247,6 +253,11 @@ fn load_credentials(config_path: &std::path::Path) -> Credentials {
         }
     }
 
+    prompt_for_credentials()
+}
+
+/// Prompts the user for their username and password.
+fn prompt_for_credentials() -> Credentials {
     let mut username = String::new();
 
     print!("Username: ");
@@ -257,15 +268,11 @@ fn load_credentials(config_path: &std::path::Path) -> Credentials {
     let _ = io::stdout().flush();
     let password = rpassword::read_password().expect("Failed to read password");
 
-    let credentials = Credentials {
+    Credentials {
         username: username.trim().to_string(),
         password: password.trim().to_string(),
         access_token: None,
-    };
-
-    save_credentials(&credentials, &config_path);
-
-    credentials
+    }
 }
 
 /// Saves updated credentials to the config file
