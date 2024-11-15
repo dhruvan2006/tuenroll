@@ -279,24 +279,25 @@ fn save_credentials(credentials: &Credentials, config_path: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     /// Set up a temporary directory as `HOME` to test whether `get_config_path()`
     /// returns the accurate path
     #[test]
     fn test_get_config_path() {
-        let temp_home = std::env::temp_dir();
-        std::env::set_var("HOME", &temp_home);
+        let temp_home = tempdir().expect("Failed to create temp directory");
+        env::set_var("HOME", &temp_home.path());
 
         let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
 
-        let expected_path = temp_home.join(CONFIG_DIR).join(CONFIG_FILE);
+        let expected_path = temp_home.path().join(CONFIG_DIR).join(CONFIG_FILE);
         assert_eq!(expected_path, config_path);
     }
 
     #[test]
     fn test_save_credentials() {
-        let temp_dir = env::temp_dir();
-        let config_path = temp_dir.join(CONFIG_FILE);
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let config_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
             username: "testuser".to_string(),
@@ -318,8 +319,8 @@ mod tests {
     /// can read from the file and return the accurate `username` and `password`
     #[test]
     fn test_load_credentials_with_valid_file() {
-        let temp_dir = std::env::temp_dir();
-        let config_file_path = temp_dir.join(CONFIG_FILE);
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let config_file_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
             username: "testuser".to_string(),
