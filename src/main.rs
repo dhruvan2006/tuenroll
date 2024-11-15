@@ -41,6 +41,10 @@ enum Commands {
     Stop,
     /// Runs the check process one time and displays results.
     Run,
+    /// Change username and password
+    Change,
+    /// Delete any saved credentials
+    Delete,
 }
 
 // TODO: Give a finalized name for the directory
@@ -96,7 +100,31 @@ async fn main() {
                 println!("{}", "Background service has been successfully stopped".green().bold());
             }
         },
+        Commands::Change => {
+            info!("Changing credentials.");
+            change_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE)).await;
+            println!("{}", "Success: Credentials changed!".green().bold());
+        }
+        Commands::Delete => {
+            info!("Deleting credentials.");
+            delete_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE));
+            println!("{}", "Success: Credentials deleted!".green().bold());
+        }
     }
+}
+
+async fn change_credentials(config_path: &std::path::PathBuf) {
+    delete_credentials(&config_path);
+    get_valid_credentials(&config_path).await;
+}
+
+fn delete_credentials(config_path: &std::path::Path) {
+    let creds = Credentials {
+        username: String::new(),
+        password: String::new(),
+        access_token: None,
+    };
+    save_credentials(&creds, &config_path);
 }
 
 fn set_up_logging() {
@@ -218,6 +246,11 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
     // Retrieve stored credentials (with or without access token)
     let mut credentials = load_credentials(config_path);
 
+    // Skip validation steps if the credentials are empty
+    if is_credentials_empty(config_path) {
+        return prompt_for_credentials();
+    }
+
     loop {
         // Only show the spinner if not in daemonized mode
         let pb = if env::var("DAEMONIZED").is_err() {
@@ -269,6 +302,16 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
             }
         }
     }
+}
+
+fn is_credentials_empty(config_path: &std::path::Path) -> bool {
+    if let Ok(data) = std::fs::read_to_string(&config_path) {
+        if let Ok(credentials) = serde_json::from_str::<Credentials>(&data) {
+            return credentials.username.is_empty() && credentials.password.is_empty() && credentials.access_token.is_none();
+        }
+    }
+
+    false
 }
 
 /// Loads credentials from config file or prompts the user to enter them if missing.
@@ -326,6 +369,30 @@ mod tests {
 
         let expected_path = temp_home.path().join(CONFIG_DIR).join(CONFIG_FILE);
         assert_eq!(expected_path, config_path);
+    }
+
+    /// Test depends on `save_credentials()`
+    #[test]
+    fn test_delete_credentials() {
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let config_path = temp_dir.path().join(CONFIG_FILE);
+
+        let credentials = Credentials {
+            username: "testuser".to_string(),
+            password: "testpassword".to_string(),
+            access_token: Some("testtoken".to_string()),
+        };
+
+        save_credentials(&credentials, &config_path.as_path());
+
+        delete_credentials(config_path.as_path());
+
+        let saved_data = std::fs::read_to_string(&config_path).unwrap();
+        let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
+
+        assert_eq!(saved_credentials.username, String::new());
+        assert_eq!(saved_credentials.password, String::new());
+        assert_eq!(saved_credentials.access_token, None);
     }
 
     #[test]
