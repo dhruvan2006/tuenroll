@@ -12,8 +12,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
-    username: String,
-    password: String,
+    username: Option<String>,
+    password: Option<String>,
     access_token: Option<String>,
 }
 
@@ -69,7 +69,7 @@ async fn main() {
             run_auto_sign_up().await;
 
             // WARNING: Do not have any print statements or the the command and process will stop working detached
-            if env::var("DAEMONIZED").is_err() {
+            if env::var("DAEMONIZED").err().is_some() {
                 //  Check that no other process is running
                 if process_is_running() {
                     println!("Another process is already running");
@@ -120,8 +120,8 @@ async fn change_credentials(config_path: &std::path::PathBuf) {
 
 fn delete_credentials(config_path: &std::path::Path) {
     let creds = Credentials {
-        username: String::new(),
-        password: String::new(),
+        username: None,
+        password: None,
         access_token: None,
     };
     save_credentials(&creds, &config_path);
@@ -247,7 +247,7 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
     let mut credentials = load_credentials(config_path);
 
     loop {
-        let is_cred_empty = credentials.username.is_empty() && credentials.password.is_empty() && credentials.access_token.is_none();
+        let is_cred_empty = credentials.username.is_none() && credentials.password.is_none() && credentials.access_token.is_none();
 
         // Only show the spinner if not in daemonized mode
         let pb = if env::var("DAEMONIZED").is_err() && !is_cred_empty {
@@ -279,24 +279,32 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
             }
         }
 
+        // Check if username and password exist
+        match (&credentials.username, &credentials.password) {
         // Access token is missing or invalid; prompt for correct credentials if needed
-        match api::get_access_token(&credentials.username, &credentials.password).await {
-            Ok(new_token) => {
-                credentials.access_token = Some(new_token);
-                save_credentials(&credentials, config_path);
-                if let Some(pb) = pb.as_ref() {
-                    pb.finish_and_clear();
+            (Some(username), Some(password)) => {
+                match api::get_access_token(username, password).await {
+                    Ok(new_token) => {
+                        credentials.access_token = Some(new_token);
+                        save_credentials(&credentials, config_path);
+                        if let Some(pb) = pb.as_ref() {
+                            pb.finish_and_clear();
+                        }
+                        println!("{}", "Success: Credentials are valid!".green().bold());
+                        return credentials;
+                    }
+                    Err(_) => {
+                        if let Some(pb) = pb.as_ref() {
+                            pb.finish_and_clear();
+                        }
+                        if !is_cred_empty {
+                            eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
+                        }
+                        credentials = prompt_for_credentials();
+                    }
                 }
-                println!("{}", "Success: Credentials are valid!".green().bold());
-                return credentials;
             }
-            Err(_) => {
-                if let Some(pb) = pb.as_ref() {
-                    pb.finish_and_clear();
-                }
-                if !is_cred_empty {
-                    eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
-                }
+            _ => {
                 credentials = prompt_for_credentials();
             }
         }
@@ -328,8 +336,8 @@ fn prompt_for_credentials() -> Credentials {
     let password = rpassword::read_password().expect("Failed to read password");
 
     Credentials {
-        username: username.trim().to_string(),
-        password: password.trim().to_string(),
+        username: Some(username.trim().to_string()),
+        password: Some(password.trim().to_string()),
         access_token: None,
     }
 }
@@ -367,8 +375,8 @@ mod tests {
         let config_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
-            username: "testuser".to_string(),
-            password: "testpassword".to_string(),
+            username: Some("testuser".to_string()),
+            password: Some("testpassword".to_string()),
             access_token: Some("testtoken".to_string()),
         };
 
@@ -379,8 +387,8 @@ mod tests {
         let saved_data = std::fs::read_to_string(&config_path).unwrap();
         let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
 
-        assert_eq!(saved_credentials.username, String::new());
-        assert_eq!(saved_credentials.password, String::new());
+        assert_eq!(saved_credentials.username, None);
+        assert_eq!(saved_credentials.password, None);
         assert_eq!(saved_credentials.access_token, None);
     }
 
@@ -390,8 +398,8 @@ mod tests {
         let config_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
-            username: "testuser".to_string(),
-            password: "testpassword".to_string(),
+            username: Some("testuser".to_string()),
+            password: Some("testpassword".to_string()),
             access_token: Some("testtoken".to_string()),
         };
 
@@ -400,8 +408,8 @@ mod tests {
         let saved_data = std::fs::read_to_string(&config_path).unwrap();
         let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
 
-        assert_eq!(saved_credentials.username, "testuser");
-        assert_eq!(saved_credentials.password, "testpassword");
+        assert_eq!(saved_credentials.username.unwrap(), "testuser");
+        assert_eq!(saved_credentials.password.unwrap(), "testpassword");
         assert_eq!(saved_credentials.access_token.unwrap(), "testtoken");
     }
 
@@ -413,8 +421,8 @@ mod tests {
         let config_file_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
-            username: "testuser".to_string(),
-            password: "testpassword".to_string(),
+            username: Some("testuser".to_string()),
+            password: Some("testpassword".to_string()),
             access_token: None
         };
         let serialized = serde_json::to_string(&credentials)
@@ -425,7 +433,7 @@ mod tests {
 
         let result = load_credentials(&*config_file_path);
 
-        assert_eq!(result.username, "testuser");
-        assert_eq!(result.password, "testpassword");
+        assert_eq!(result.username.unwrap(), "testuser");
+        assert_eq!(result.password.unwrap(), "testpassword");
     }
 }
