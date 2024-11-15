@@ -23,7 +23,7 @@ struct PID {
 }
 
 #[derive(Parser)]
-#[command(name = "Rodvdc CLI", version, about = "CLI for automatically enrolling for tests")]
+#[command(name = "TUEnroll CLI", version, about = "Automate your TU Delft exam registrations")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -47,11 +47,10 @@ enum Commands {
     Delete,
 }
 
-// TODO: Give a finalized name for the directory
-const CONFIG_DIR: &str = ".rodvdc";
+const CONFIG_DIR: &str = ".tuenroll";
 const CONFIG_FILE: &str = "config.json";
 const PID_FILE: &str = "process.json";
-const LOG_FILE: &str = "rodvdc.log";
+const LOG_FILE: &str = "tuenroll.log";
 
 #[tokio::main]
 async fn main() {
@@ -91,7 +90,7 @@ async fn main() {
             }
         },
         Commands::Stop => {
-            info!("Stopping the rodvdc cli.");
+            info!("Stopping the cli.");
             let stopped_process = stop_program();
             if stopped_process.is_none() {
                 eprintln!("{}", "Error: No running service to stop.".red());
