@@ -8,6 +8,7 @@ use std::{thread, time, process::Command};
 use log::{info, error, warn};
 use simplelog::*;
 use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
@@ -58,6 +59,7 @@ async fn main() {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
             run_auto_sign_up().await;
+            println!("{}", "Success: Exam check ran.".green().bold());
         },
         Commands::Start { interval } => {
             run_auto_sign_up().await;
@@ -216,26 +218,57 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
     // Retrieve stored credentials (with or without access token)
     let mut credentials = load_credentials(config_path);
 
-    // If there's an access token, check if it's still valid
-    if let Some(ref token) = credentials.access_token {
-        let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
-            .await
-            .unwrap_or(false);
+    loop {
+        // Only show the spinner if not in daemonized mode
+        let pb = if env::var("DAEMONIZED").is_err() {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+                    .template("{spinner:.green} {msg}")
+                    .unwrap(),
+            );
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.set_message("Validating credentials...");
+            Some(pb)
+        } else {
+            None
+        };
 
-        if is_valid {
-            return credentials;
+        // If there's an access token, check if it's still valid
+        if let Some(ref token) = credentials.access_token {
+            let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
+                .await
+                .unwrap_or(false);
+
+            if let Some(pb) = pb.as_ref() {
+                pb.finish_and_clear();
+            }
+            if is_valid {
+                return credentials;
+            }
+        }
+
+        // Access token is missing or invalid; prompt for correct credentials if needed
+        match api::get_access_token(&credentials.username, &credentials.password).await {
+            Ok(new_token) => {
+                credentials.access_token = Some(new_token);
+                save_credentials(&credentials, config_path);
+                if let Some(pb) = pb.as_ref() {
+                    pb.finish_and_clear();
+                }
+                println!("{}", "Success: Credentials are valid!".green().bold());
+                return credentials;
+            }
+            Err(_) => {
+                if let Some(pb) = pb.as_ref() {
+                    pb.finish_and_clear();
+                }
+                eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
+                credentials = prompt_for_credentials();
+            }
         }
     }
-
-    // Access token is missing or invalid; fetch a new one
-    let new_token = api::get_access_token(&credentials.username, &credentials.password)
-        .await
-        .expect("Failed to fetch access token");
-    credentials.access_token = Some(new_token.clone());
-
-    save_credentials(&credentials, config_path);
-
-    credentials
 }
 
 /// Loads credentials from config file or prompts the user to enter them if missing.
@@ -247,6 +280,11 @@ fn load_credentials(config_path: &std::path::Path) -> Credentials {
         }
     }
 
+    prompt_for_credentials()
+}
+
+/// Prompts the user for their username and password.
+fn prompt_for_credentials() -> Credentials {
     let mut username = String::new();
 
     print!("Username: ");
@@ -257,15 +295,11 @@ fn load_credentials(config_path: &std::path::Path) -> Credentials {
     let _ = io::stdout().flush();
     let password = rpassword::read_password().expect("Failed to read password");
 
-    let credentials = Credentials {
+    Credentials {
         username: username.trim().to_string(),
         password: password.trim().to_string(),
         access_token: None,
-    };
-
-    save_credentials(&credentials, &config_path);
-
-    credentials
+    }
 }
 
 /// Saves updated credentials to the config file
