@@ -62,12 +62,13 @@ async fn main() {
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            run_auto_sign_up().await;
-            println!("{}", "Success: Exam check ran.".green().bold());
+            match run_auto_sign_up(false).await {
+                Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
+                Err(()) => println!("{}", "Failure: A network error occured".red().bold())
+            }
+            
         },
         Commands::Start { interval } => {
-            run_auto_sign_up().await;
-
             // WARNING: Do not have any print statements or the the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
                 //  Check that no other process is running
@@ -82,11 +83,12 @@ async fn main() {
                     .spawn()
                     .unwrap();
                 store_pid(Some(child.id()));
-                println!("{}", "Success: Service started.".green().bold());
+                //println!("{}", "Success: Service started.".green().bold());
                 info!("Daemon process started with PID: {}", child.id());
                 return
             }
             else {
+
                 run_loop(interval).await;
             }
         },
@@ -102,8 +104,11 @@ async fn main() {
         },
         Commands::Change => {
             info!("Changing credentials.");
-            change_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE)).await;
-            println!("{}", "Success: Credentials changed!".green().bold());
+            match change_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE)).await {
+                Ok(_) => println!("{}", "Success: Credentials changed!".green().bold()),
+                Err(_) => println!("{}", "Failed: A network problem occured.".red().bold())
+            }
+            
         }
         Commands::Delete => {
             info!("Deleting credentials.");
@@ -113,9 +118,9 @@ async fn main() {
     }
 }
 
-async fn change_credentials(config_path: &std::path::PathBuf) {
+async fn change_credentials(config_path: &std::path::PathBuf) -> Result<Credentials, Box<dyn std::error::Error>> {
     delete_credentials(&config_path);
-    get_valid_credentials(&config_path).await;
+    return get_valid_credentials(&config_path).await;
 }
 
 fn delete_credentials(config_path: &std::path::Path) {
@@ -144,8 +149,8 @@ fn set_up_logging() {
 
 async fn run_loop(interval: &u32) {
     loop {
-        run_auto_sign_up().await;
-        let duration = time::Duration::from_secs((interval*3600).into());
+        let _ = run_auto_sign_up(true).await;
+        let duration = time::Duration::from_secs(5);
         thread::sleep(duration);
     }
 }
@@ -199,19 +204,36 @@ fn process_is_running() -> bool {
 }
 
 
-/// Runs the auto signup fully once
+/// Runs the auto signup fully o nce
 /// Gets the credentials, the access token 
 /// Automatically signs up for all the tests
 /// Prints the result of execution
-async fn run_auto_sign_up() {
+async fn run_auto_sign_up(is_loop: bool) -> Result<(),()> {
     info!("Fetching credentials from config file.");
     let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
-    let credentials = get_valid_credentials(&config_path).await;
-    let access_token = credentials.access_token.expect("Access token should be present");
+    
 
-    let registration_result = api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL)
-        .await 
-        .expect("An error occured");
+    let credentials;
+
+    loop {
+        let request = get_valid_credentials(&config_path);
+        if let Some(data) = handle_request(is_loop, request.await) {
+            credentials = data;
+            break;
+        }
+    }
+
+    let access_token = credentials.access_token.expect("Access token should be present");
+    let registration_result;
+    loop {
+        let request = api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL);
+        if let Some(data) = handle_request(is_loop, request.await) {
+            registration_result = data;
+            break;
+        }
+    }
+    
+    
     let course_korte_naam_result: Vec<String> = registration_result.iter()
         .map(|test_list| test_list.cursus_korte_naam.clone())
         .collect();
@@ -220,6 +242,24 @@ async fn run_auto_sign_up() {
     }
     else {
         info!("Successfully enrolled for the following exams: {:?}", course_korte_naam_result);
+    }
+    Ok(())
+}
+
+fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
+    match request {
+        Ok(data) => {
+            return Some(data);
+        }
+        Err(e) => {
+            if !is_loop {
+                panic!("{}", "A network error likely occured".red().bold());
+            }
+            // Logs the error and wait 5 seconds before continuing
+            error!("{}", e.to_string());
+            thread::sleep(time::Duration::from_secs(5));
+            return None;           
+        }
     }
 }
 
@@ -242,7 +282,7 @@ fn store_pid(process_id: Option<u32>) {
 
 /// Retrieves valid credentials with an access token.
 /// If the access token is missing or invalid, it fetches a new one and updates the config.
-async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
+async fn get_valid_credentials(config_path: &std::path::Path) -> Result<Credentials, Box<dyn std::error::Error>> {
     // Retrieve stored credentials (with or without access token)
     let mut credentials = load_credentials(config_path);
 
@@ -275,7 +315,7 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
                 pb.finish_and_clear();
             }
             if is_valid {
-                return credentials;
+                return Ok(credentials);
             }
         }
 
@@ -290,14 +330,21 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
                         if let Some(pb) = pb.as_ref() {
                             pb.finish_and_clear();
                         }
+                        // TODO: Print might be problematic for autorun
                         println!("{}", "Success: Credentials are valid!".green().bold());
-                        return credentials;
+                        return Ok(credentials);
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        // If it is a connection error, the error needs to be thrown
+                        if e.to_string().contains("error sending request") {
+                            return Err(e);
+                        }
+
                         if let Some(pb) = pb.as_ref() {
                             pb.finish_and_clear();
                         }
                         if !is_cred_empty {
+                            // TODO: problematic for autorun.
                             eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
                         }
                         credentials = prompt_for_credentials();
