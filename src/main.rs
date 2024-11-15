@@ -246,14 +246,11 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
     // Retrieve stored credentials (with or without access token)
     let mut credentials = load_credentials(config_path);
 
-    // Skip validation steps if the credentials are empty
-    if is_credentials_empty(config_path) {
-        return prompt_for_credentials();
-    }
-
     loop {
+        let is_cred_empty = credentials.username.is_empty() && credentials.password.is_empty() && credentials.access_token.is_none();
+
         // Only show the spinner if not in daemonized mode
-        let pb = if env::var("DAEMONIZED").is_err() {
+        let pb = if env::var("DAEMONIZED").is_err() && !is_cred_empty {
             let pb = ProgressBar::new_spinner();
             pb.set_style(
                 ProgressStyle::default_spinner()
@@ -297,21 +294,13 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Credentials {
                 if let Some(pb) = pb.as_ref() {
                     pb.finish_and_clear();
                 }
-                eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
+                if !is_cred_empty {
+                    eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
+                }
                 credentials = prompt_for_credentials();
             }
         }
     }
-}
-
-fn is_credentials_empty(config_path: &std::path::Path) -> bool {
-    if let Ok(data) = std::fs::read_to_string(&config_path) {
-        if let Ok(credentials) = serde_json::from_str::<Credentials>(&data) {
-            return credentials.username.is_empty() && credentials.password.is_empty() && credentials.access_token.is_none();
-        }
-    }
-
-    false
 }
 
 /// Loads credentials from config file or prompts the user to enter them if missing.
