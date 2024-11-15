@@ -36,6 +36,8 @@ enum Commands {
         /// Interval in hours for periodic checking
         #[arg(short, long, default_value_t = 24)]
         interval: u32,
+        #[arg(short, long, default_value_t = false)]
+        boot: bool
     },
     /// Stops any running background test checking process.
     Stop,
@@ -47,6 +49,9 @@ enum Commands {
     Delete,
 }
 
+
+// TODO: Give a finalized name for the directory
+const APP_NAME: &str = "tuenroll";
 const CONFIG_DIR: &str = ".tuenroll";
 const CONFIG_FILE: &str = "config.json";
 const PID_FILE: &str = "process.json";
@@ -67,9 +72,17 @@ async fn main() {
             }
             
         },
-        Commands::Start { interval } => {
+        Commands::Start { interval, boot } => {
+
             // WARNING: Do not have any print statements or the the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
+                // Checks whether a process was running, if not don't run the program
+                if *boot && get_stored_pid().is_none() {
+                    return;
+                }
+                else if !boot {
+                    setup_run_on_boot();
+                }
                 //  Check that no other process is running
                 if process_is_running() {
                     println!("Another process is already running");
@@ -394,6 +407,72 @@ fn save_credentials(credentials: &Credentials, config_path: &std::path::Path) {
         .expect("Failed to create config directory");
     std::fs::write(config_path, serialized).expect("Failed to save credentials");
 }
+
+
+/// Sets up the program to run on boot
+fn setup_run_on_boot() {
+
+    #[cfg(target_os = "windows")]
+    let result = run_on_boot_windows();
+
+    #[cfg(target_os = "linux")]
+    let result = run_on_boot_linux();
+
+    if result.is_ok() {
+        info!("Boot setup was succesful");
+    }
+    else {
+        error!("Boot setup encountered an error")
+    }
+
+}
+#[cfg(target_os = "windows")]
+fn run_on_boot_windows() -> Result<(), Box<dyn std::error::Error>> {
+    let exe_path = env::current_exe()?;  
+    // Path to the startup folder
+    let startup_path = format!(
+        r"{}\Microsoft\Windows\Start Menu\Programs\Startup\" + APP_NAME + ".lnk",
+        env::var("APPDATA")?
+    );
+
+    // Use PowerShell to create a shortcut in the Startup folder
+    let command = format!(
+        r#"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{}'); $sc.TargetPath = '{}'; $sc.Save()"#,
+        startup_path, exe_path.to_string_lossy()
+    );
+
+    Command::new("powershell")
+        .args(&["-Command", &command])
+        .output()?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_on_boot_linux() -> Result<(), Box<dyn std::error::Error>> {
+
+    let exe_path = env::current_exe()?;
+    let exe_path = exe_path.to_string_lossy();  
+
+    let autostart_dir = dirs::config_dir()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Config directory not found")).expect("Error occured")
+        .join("autostart");
+
+    std::fs::create_dir_all(&autostart_dir).expect("Couldn't create directory");
+
+    // Create the .desktop file
+    let desktop_file_path = autostart_dir.join(APP_NAME.to_string() +  ".desktop");
+    let desktop_entry = format!(
+        "[Desktop Entry]\nType=Application\nName={}\nExec={}\nX-GNOME-Autostart-enabled=true\n",
+        APP_NAME,
+        exe_path + " start --boot"
+    );
+
+    let mut file = std::fs::File::create(&desktop_file_path)?;
+    file.write_all(desktop_entry.as_bytes())?;
+
+    return Ok(());
+}
+
 
 #[cfg(test)]
 mod tests {
