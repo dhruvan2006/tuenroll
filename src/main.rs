@@ -9,6 +9,7 @@ use log::{info, error, warn};
 use simplelog::*;
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use notify_rust::Notification;
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
@@ -240,8 +241,21 @@ async fn run_auto_sign_up(is_loop: bool) -> Result<(),()> {
     }
     else {
         info!("Successfully enrolled for the following exams: {:?}", course_korte_naam_result);
+        // Send desktop notification
+        for course_name in course_korte_naam_result {
+            show_notification(&course_name);
+        }
     }
     Ok(())
+}
+
+fn show_notification(course_name: &str) {
+    Notification::new()
+        .summary("Exam Registration Success")
+        .body(&format!("You have been successfully registered for the exam: {}", course_name))
+        .icon("info")
+        .show()
+        .unwrap();
 }
 
 fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
