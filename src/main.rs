@@ -81,7 +81,7 @@ async fn main() {
                     return;
                 }
                 else if !boot {
-                    setup_run_on_boot();
+                    setup_run_on_boot(interval);
                 }
                 //  Check that no other process is running
                 if process_is_running() {
@@ -161,6 +161,7 @@ fn set_up_logging() {
 
 async fn run_loop(interval: &u32) {
     loop {
+        let _ = run_auto_sign_up(true).await;
         let duration = time::Duration::from_secs((interval*3600).into());
         thread::sleep(duration);
     }
@@ -410,13 +411,13 @@ fn save_credentials(credentials: &Credentials, config_path: &std::path::Path) {
 
 
 /// Sets up the program to run on boot
-fn setup_run_on_boot() {
+fn setup_run_on_boot(interval: &u32) {
 
     #[cfg(target_os = "windows")]
-    let result = run_on_boot_windows();
+    let result = run_on_boot_windows(interval);
 
     #[cfg(target_os = "linux")]
-    let result = run_on_boot_linux();
+    let result = run_on_boot_linux(interval);
 
     if result.is_ok() {
         info!("Boot setup was succesful");
@@ -426,8 +427,9 @@ fn setup_run_on_boot() {
     }
 
 }
+
 #[cfg(target_os = "windows")]
-fn run_on_boot_windows() -> Result<(), Box<dyn std::error::Error>> {
+fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
     let exe_path = env::current_exe()?;  
     // Path to the startup folder
     let startup_path = format!(
@@ -442,13 +444,13 @@ fn run_on_boot_windows() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Command::new("powershell")
-        .args(&["-Command", &command])
+        .args(&["-Command", &command, format!("--interval={interval}").as_str(), "--boot"])
         .output()?;
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn run_on_boot_linux() -> Result<(), Box<dyn std::error::Error>> {
+fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 
     let exe_path = env::current_exe()?;
     let exe_path = exe_path.to_string_lossy();  
@@ -464,7 +466,7 @@ fn run_on_boot_linux() -> Result<(), Box<dyn std::error::Error>> {
     let desktop_entry = format!(
         "[Desktop Entry]\nType=Application\nName={}\nExec={}\nX-GNOME-Autostart-enabled=true\n",
         APP_NAME,
-        exe_path + " start --boot"
+        exe_path + format!(" start --boot --interval={interval}").as_str()
     );
 
     let mut file = std::fs::File::create(&desktop_file_path)?;
