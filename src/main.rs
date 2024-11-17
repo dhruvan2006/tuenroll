@@ -417,6 +417,7 @@ mod tests {
     /// Set up a temporary directory as `HOME` to test whether `get_config_path()`
     /// returns the accurate path
     #[test]
+    #[cfg(target_family = "unix")]
     fn test_get_config_path() {
         let temp_home = tempdir().expect("Failed to create temp directory");
         env::set_var("HOME", &temp_home.path());
