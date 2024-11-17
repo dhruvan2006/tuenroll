@@ -1,5 +1,6 @@
 mod api;
 mod models;
+use std::os::windows::process::CommandExt;
 use std::{env, io};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
@@ -73,14 +74,16 @@ async fn main() {
             
         },
         Commands::Start { interval, boot } => {
-
+            info!("Starting the 'Start' command execution.");
             // WARNING: Do not have any print statements or the the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
                 // Checks whether a process was running, if not don't run the program
                 if *boot && get_stored_pid().is_none() {
+                    info!("Boot is enabled but no process was running. Stopping execution");
                     return;
                 }
                 else if !boot {
+                    info!("Setting boot up");
                     setup_run_on_boot(interval);
                 }
                 //  Check that no other process is running
@@ -89,18 +92,24 @@ async fn main() {
                     return;
                 }
                 info!("Spawning daemon process with interval: {}", interval);
-                let child = Command::new(env::current_exe().unwrap())
+                let mut command = Command::new(env::current_exe().unwrap());
+                    
+                command
                     .args(&["start", format!("--interval={}", interval).as_str()])
-                    .env("DAEMONIZED", "1")
-                    .spawn()
-                    .unwrap();
+                    .env("DAEMONIZED", "1");
+
+                #[cfg(target_os="windows")]
+                command.creation_flags(0x08000000);
+
+                let child = command.spawn().unwrap();
+
                 store_pid(Some(child.id()));
                 //println!("{}", "Success: Service started.".green().bold());
                 info!("Daemon process started with PID: {}", child.id());
                 return
             }
             else {
-
+                info!("Daemon process enabled: starting loop");
                 run_loop(interval).await;
             }
         },
@@ -203,16 +212,41 @@ fn stop_program() -> Option<u32> {
 fn process_is_running() -> bool {
     let stored_pid = get_stored_pid();
     if stored_pid.is_none() {return false};
-    let process = Command::new("ps").args(["-p", stored_pid.unwrap().to_string().as_str()]).output().expect("Error occured when running ps -p $PID");
-    if process.status.success() {
-        info!("Process with PID {} is running.", stored_pid.unwrap());
-        return true;
+
+    let stored_pid = stored_pid.unwrap().to_string();
+    
+    #[cfg(not(target_os="windows"))]
+    {
+        let process = Command::new("ps").args(["-p", stored_pid.as_str()]).output().expect("Error occured when running ps -p $PID");
+        if process.status.success() {
+            info!("Process with PID {} is running.", stored_pid);
+            return true;
+        }
+        else {
+            warn!("Process with PID {} is not running. Cleaning up PID store.", stored_pid);
+            store_pid(None);
+            return false;
+        }
     }
-    else {
-        warn!("Process with PID {} is not running. Cleaning up PID store.", stored_pid.unwrap());
-        store_pid(None);
-    }
-    false
+    
+    #[cfg(target_os="windows")]
+    {
+        let process = Command::new("tasklist")
+            .arg("/FI")
+            .raw_arg(format!("\"PID eq {}\"", stored_pid.to_string()).as_str())
+            .output().expect("Error occured when running tasklist /FI \"PID eq $pid\"");
+
+        
+        if String::from_utf8(process.stdout).unwrap().contains("No tasks are running") {
+            warn!("Process with PID {} is not running. Cleaning up PID store.", stored_pid);
+            store_pid(None);
+            return false;
+        } 
+        else {
+            info!("Process with PID {} is running.", stored_pid);
+            return true;
+        }
+    }        
 }
 
 
@@ -432,20 +466,21 @@ fn setup_run_on_boot(interval: &u32) {
 fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
     let exe_path = env::current_exe()?;  
     // Path to the startup folder
-    let startup_path = format!(
-        r"{}\Microsoft\Windows\Start Menu\Programs\Startup\" + APP_NAME + ".lnk",
-        env::var("APPDATA")?
-    );
+    let startup_path = format!(r"{}\Microsoft\Windows\Start Menu\Programs\Startup\{}.lnk",env::var("APPDATA")?, APP_NAME);
+
+    let args = format!("start --interval={interval} --boot");
 
     // Use PowerShell to create a shortcut in the Startup folder
     let command = format!(
-        r#"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{}'); $sc.TargetPath = '{}'; $sc.Save()"#,
-        startup_path, exe_path.to_string_lossy()
+        r#"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{}'); $sc.TargetPath = '{}'; $sc.Arguments = '{}'; $sc.Save()"#,
+        startup_path, exe_path.to_string_lossy(), args 
     );
 
+
     Command::new("powershell")
-        .args(&["-Command", &command, format!("--interval={interval}").as_str(), "--boot"])
+        .args(&["-Command", &command])
         .output()?;
+
     Ok(())
 }
 
