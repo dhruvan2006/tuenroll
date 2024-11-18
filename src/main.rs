@@ -473,7 +473,7 @@ fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>>
 
     // Use PowerShell to create a shortcut in the Startup folder
     let command = format!(
-        r#"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{}'); $sc.TargetPath = '{}'; $sc.Arguments = '{}'; $sc.Save()"#,
+        r#"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{}'); $sc.TargetPath = '{}'; $sc.Arguments = '{}'; $sc.WindowStyle = 7; $sc.Save()"#,
         startup_path, exe_path.to_string_lossy(), args 
     );
 
