@@ -167,7 +167,7 @@ fn set_up_logging() {
 async fn run_loop(interval: &u32, credentials: Credentials) {
     loop {
         let _ = run_auto_sign_up(true, &credentials).await;
-        let duration = time::Duration::from_secs(5);
+        let duration = time::Duration::from_secs((interval * 3600).into());
         thread::sleep(duration);
     }
 }

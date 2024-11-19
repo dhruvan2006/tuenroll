@@ -97,7 +97,7 @@ impl CredentialManager {
         
         loop {
             let mut pb;
-            
+
             if credentials.is_empty() {
                 pb = self.setup_progress_bar(&mut credentials);
                 credentials = self.prompt_for_credentials();
@@ -177,73 +177,129 @@ impl CredentialManager {
 #[cfg(test)]
 mod tests {
     use crate::CONFIG_FILE;
-    use std::io::Write;
 
     use super::*;
+    use fs::{metadata, File};
     use tempfile::tempdir;
 
-    /// Test depends on `save_credentials()`
     #[test]
-    fn test_delete_credentials() {
+    fn test_save_credentials_success() {
         let temp_dir = tempdir().expect("Failed to create temp directory");
         let config_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
-            username: Some("testuser".to_string()),
-            password: Some("testpassword".to_string()),
-            access_token: Some("testtoken".to_string()),
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("test_token".to_string()),
         };
 
-        let _ = credentials.save(&config_path);
+        let result = credentials.save(&config_path);
+        assert!(result.is_ok());
 
-        let saved_data = std::fs::read_to_string(&config_path).unwrap();
-        assert!(saved_data.contains("testuser"));
-        assert!(saved_data.contains("testpassword"));
-        assert!(saved_data.contains("testtoken"));
+        // Check if the file exists
+        assert!(metadata(&config_path).is_ok());
+
+        // Check if saved file includes the credentials
+        let saved = fs::read_to_string(config_path).expect("Failed to read config file");
+        assert!(saved.contains("test_user"));
+        assert!(saved.contains("test_password"));
+        assert!(saved.contains("test_token"));
     }
 
     #[test]
-    fn test_save_credentials() {
+    fn test_save_credentials_invalid_path() {
+        let invalid_path = Path::new("/invalid/directory/path/test_config.json");
+
+        let credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("test_token".to_string()),
+        };
+
+        let result = credentials.save(&invalid_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_empty_credentials() {
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let config_path = temp_dir.path().join(CONFIG_FILE);
+
+        let empty_credentials = Credentials::default();
+
+        let result = empty_credentials.save(&config_path);
+        assert!(result.is_ok());
+
+        // Check if the file exists
+        assert!(metadata(&config_path).is_ok());
+
+        // Check if saved file includes the credentials
+        let saved = fs::read_to_string(config_path).expect("Failed to read config file");
+        assert!(saved.contains("null"));
+    }
+
+    #[test]
+    fn test_load_credentials_success() {
         let temp_dir = tempdir().expect("Failed to create temp directory");
         let config_path = temp_dir.path().join(CONFIG_FILE);
 
         let credentials = Credentials {
-            username: Some("testuser".to_string()),
-            password: Some("testpassword".to_string()),
-            access_token: Some("testtoken".to_string()),
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("test_token".to_string()),
         };
 
-        let _ = credentials.save(&config_path);
+        // Serialize the credentials and write them to the file
+        let serialized = serde_json::to_string(&credentials).expect("Failed to serialize credentials");
+        let mut file = File::create(&config_path).expect("Failed to create file");
+        file.write_all(serialized.as_bytes())
+            .expect("Failed to write to file");
 
-        let saved_data = std::fs::read_to_string(&config_path).unwrap();
-        let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
+        let loaded_credentials = Credentials::load(&config_path);
 
-        assert_eq!(saved_credentials.username.unwrap(), "testuser");
-        assert_eq!(saved_credentials.password.unwrap(), "testpassword");
-        assert_eq!(saved_credentials.access_token.unwrap(), "testtoken");
+        assert!(loaded_credentials.is_some());
+        let loaded_credentials = loaded_credentials.unwrap();
+        assert_eq!(loaded_credentials.username, credentials.username);
+        assert_eq!(loaded_credentials.password, credentials.password);
+        assert_eq!(loaded_credentials.access_token, credentials.access_token);
     }
 
-    /// Set up a temp `CONFIG_FILE` file with test credentials to assert whether `get_credentials()`
-    /// can read from the file and return the accurate `username` and `password`
     #[test]
-    fn test_load_credentials_with_valid_file() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_file_path = temp_dir.path().join(CONFIG_FILE);
+    fn test_load_credentials_missing_file() {
+        let invalid_path = Path::new("non_existent_config.json");
 
+        let loaded_credentials = Credentials::load(invalid_path);
+
+        // Assert that loading fails (returns None)
+        assert!(loaded_credentials.is_none());
+    }
+
+    #[test]
+    fn test_is_empty_all_none() {
+        let credentials = Credentials::default();
+
+        assert!(credentials.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_some_fields() {
         let credentials = Credentials {
-            username: Some("testuser".to_string()),
-            password: Some("testpassword".to_string()),
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
             access_token: None,
         };
-        let serialized =
-            serde_json::to_string(&credentials).expect("Failed to serialize credentials");
-        std::fs::create_dir_all(config_file_path.parent().unwrap()).unwrap();
-        let mut file = std::fs::File::create(&config_file_path).unwrap();
-        file.write_all(serialized.as_bytes()).unwrap();
 
-        let result = Credentials::load(&*config_file_path).unwrap();
+        assert!(!credentials.is_empty());
+    }
 
-        assert_eq!(result.username.unwrap(), "testuser");
-        assert_eq!(result.password.unwrap(), "testpassword");
+    #[test]
+    fn test_is_empty_all_some() {
+        let credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("test_token".to_string()),
+        };
+
+        assert!(!credentials.is_empty());
     }
 }
