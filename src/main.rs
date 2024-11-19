@@ -206,7 +206,7 @@ fn stop_program() -> Option<u32> {
 
     #[cfg(target_os = "windows")]
     let kill = Command::new("taskkill")
-        .args(&["/PID", &pid.to_string(), "/F"])
+        .args(["/PID", &pid.to_string(), "/F"])
         .spawn();
 
     #[cfg(not(target_os = "windows"))]
@@ -253,7 +253,7 @@ fn process_is_running() -> bool {
     {
         let process = Command::new("tasklist")
             .arg("/FI")
-            .raw_arg(format!("\"PID eq {}\"", stored_pid.to_string()).as_str())
+            .raw_arg(format!("\"PID eq {}\"", stored_pid).as_str())
             .output()
             .expect("Error occured when running tasklist /FI \"PID eq $pid\"");
 
@@ -266,10 +266,10 @@ fn process_is_running() -> bool {
                 stored_pid
             );
             store_pid(None);
-            return false;
+            false
         } else {
             info!("Process with PID {} is running.", stored_pid);
-            return true;
+            true
         }
     }
 }
@@ -540,7 +540,7 @@ fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>>
     );
 
     Command::new("powershell")
-        .args(&["-Command", &command])
+        .args(["-Command", &command])
         .output()?;
 
     Ok(())
