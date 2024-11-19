@@ -1,17 +1,17 @@
 mod api;
 mod models;
-#[cfg(target_os="windows")]
-use std::os::windows::process::CommandExt;
-use std::{env, io};
-use std::io::Write;
-use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
-use std::{thread, time, process::Command};
-use log::{info, error, warn};
-use simplelog::*;
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use log::{error, info, warn};
 use notify_rust::Notification;
+use serde::{Deserialize, Serialize};
+use simplelog::*;
+use std::io::Write;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+use std::{env, io};
+use std::{process::Command, thread, time};
 
 #[derive(Serialize, Deserialize)]
 struct Credentials {
@@ -22,11 +22,15 @@ struct Credentials {
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
-    pid: Option<u32>
+    pid: Option<u32>,
 }
 
 #[derive(Parser)]
-#[command(name = "TUEnroll CLI", version, about = "Automate your TU Delft exam registrations")]
+#[command(
+    name = "TUEnroll CLI",
+    version,
+    about = "Automate your TU Delft exam registrations"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -40,7 +44,7 @@ enum Commands {
         #[arg(short, long, default_value_t = 24)]
         interval: u32,
         #[arg(short, long, default_value_t = false)]
-        boot: bool
+        boot: bool,
     },
     /// Stops any running background test checking process.
     Stop,
@@ -51,7 +55,6 @@ enum Commands {
     /// Delete any saved credentials
     Delete,
 }
-
 
 // TODO: Give a finalized name for the directory
 const APP_NAME: &str = "tuenroll";
@@ -71,10 +74,9 @@ async fn main() {
             info!("Starting the 'Run' command execution.");
             match run_auto_sign_up(false).await {
                 Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
-                Err(()) => println!("{}", "Failure: A network error occured".red().bold())
+                Err(()) => println!("{}", "Failure: A network error occured".red().bold()),
             }
-            
-        },
+        }
         Commands::Start { interval, boot } => {
             info!("Starting the 'Start' command execution.");
             // WARNING: Do not have any print statements or the the command and process will stop working detached
@@ -83,8 +85,7 @@ async fn main() {
                 if *boot && get_stored_pid().is_none() {
                     info!("Boot is enabled but no process was running. Stopping execution");
                     return;
-                }
-                else if !boot {
+                } else if !boot {
                     info!("Setting boot up");
                     setup_run_on_boot(interval);
                 }
@@ -95,12 +96,12 @@ async fn main() {
                 }
                 info!("Spawning daemon process with interval: {}", interval);
                 let mut command = Command::new(env::current_exe().unwrap());
-                    
+
                 command
                     .args(["start", format!("--interval={}", interval).as_str()])
                     .env("DAEMONIZED", "1");
 
-                #[cfg(target_os="windows")]
+                #[cfg(target_os = "windows")]
                 command.creation_flags(0x08000000);
 
                 let child = command.spawn().unwrap();
@@ -108,30 +109,32 @@ async fn main() {
                 store_pid(Some(child.id()));
                 //println!("{}", "Success: Service started.".green().bold());
                 info!("Daemon process started with PID: {}", child.id());
-                return
-            }
-            else {
+                return;
+            } else {
                 info!("Daemon process enabled: starting loop");
                 run_loop(interval).await;
             }
-        },
+        }
         Commands::Stop => {
             info!("Stopping the cli.");
             let stopped_process = stop_program();
             if stopped_process.is_none() {
                 eprintln!("{}", "Error: No running service to stop.".red());
+            } else {
+                println!(
+                    "{}",
+                    "Background service has been successfully stopped"
+                        .green()
+                        .bold()
+                );
             }
-            else {
-                println!("{}", "Background service has been successfully stopped".green().bold());
-            }
-        },
+        }
         Commands::Change => {
             info!("Changing credentials.");
             match change_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE)).await {
                 Ok(_) => println!("{}", "Success: Credentials changed!".green().bold()),
-                Err(_) => println!("{}", "Failed: A network problem occured.".red().bold())
+                Err(_) => println!("{}", "Failed: A network problem occured.".red().bold()),
             }
-            
         }
         Commands::Delete => {
             info!("Deleting credentials.");
@@ -141,7 +144,9 @@ async fn main() {
     }
 }
 
-async fn change_credentials(config_path: &std::path::Path) -> Result<Credentials, Box<dyn std::error::Error>> {
+async fn change_credentials(
+    config_path: &std::path::Path,
+) -> Result<Credentials, Box<dyn std::error::Error>> {
     delete_credentials(config_path);
     get_valid_credentials(config_path).await
 }
@@ -160,12 +165,17 @@ fn set_up_logging() {
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent).expect("Failed to create log directory");
     }
-    let log_file = std::fs::OpenOptions::new().create(true).append(true).open(log_path).unwrap();
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .unwrap();
 
     CombinedLogger::init(vec![
         // TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Always),
         WriteLogger::new(LevelFilter::Info, Config::default(), log_file),
-    ]).expect("Failed to initialize logger");
+    ])
+    .expect("Failed to initialize logger");
 
     info!("Initialized the logger");
 }
@@ -173,7 +183,7 @@ fn set_up_logging() {
 async fn run_loop(interval: &u32) {
     loop {
         let _ = run_auto_sign_up(true).await;
-        let duration = time::Duration::from_secs((interval*3600).into());
+        let duration = time::Duration::from_secs((interval * 3600).into());
         thread::sleep(duration);
     }
 }
@@ -187,7 +197,6 @@ fn get_stored_pid() -> Option<u32> {
     None
 }
 
-
 fn stop_program() -> Option<u32> {
     let pid = get_stored_pid();
     pid?;
@@ -196,7 +205,9 @@ fn stop_program() -> Option<u32> {
     info!("Attempting to stop the process with PID: {}", pid);
 
     #[cfg(target_os = "windows")]
-    let kill = Command::new("taskkill").args(&["/PID", &pid.to_string(), "/F"]).spawn();
+    let kill = Command::new("taskkill")
+        .args(&["/PID", &pid.to_string(), "/F"])
+        .spawn();
 
     #[cfg(not(target_os = "windows"))]
     let kill = Command::new("kill").arg(pid.to_string()).spawn();
@@ -213,53 +224,63 @@ fn stop_program() -> Option<u32> {
 
 fn process_is_running() -> bool {
     let stored_pid = get_stored_pid();
-    if stored_pid.is_none() {return false};
+    if stored_pid.is_none() {
+        return false;
+    };
 
     let stored_pid = stored_pid.unwrap().to_string();
-    
-    #[cfg(not(target_os="windows"))]
+
+    #[cfg(not(target_os = "windows"))]
     {
-        let process = Command::new("ps").args(["-p", stored_pid.as_str()]).output().expect("Error occured when running ps -p $PID");
+        let process = Command::new("ps")
+            .args(["-p", stored_pid.as_str()])
+            .output()
+            .expect("Error occured when running ps -p $PID");
         if process.status.success() {
             info!("Process with PID {} is running.", stored_pid);
             true
-        }
-        else {
-            warn!("Process with PID {} is not running. Cleaning up PID store.", stored_pid);
+        } else {
+            warn!(
+                "Process with PID {} is not running. Cleaning up PID store.",
+                stored_pid
+            );
             store_pid(None);
             false
         }
     }
-    
-    #[cfg(target_os="windows")]
+
+    #[cfg(target_os = "windows")]
     {
         let process = Command::new("tasklist")
             .arg("/FI")
             .raw_arg(format!("\"PID eq {}\"", stored_pid.to_string()).as_str())
-            .output().expect("Error occured when running tasklist /FI \"PID eq $pid\"");
+            .output()
+            .expect("Error occured when running tasklist /FI \"PID eq $pid\"");
 
-        
-        if String::from_utf8(process.stdout).unwrap().contains("No tasks are running") {
-            warn!("Process with PID {} is not running. Cleaning up PID store.", stored_pid);
+        if String::from_utf8(process.stdout)
+            .unwrap()
+            .contains("No tasks are running")
+        {
+            warn!(
+                "Process with PID {} is not running. Cleaning up PID store.",
+                stored_pid
+            );
             store_pid(None);
             return false;
-        } 
-        else {
+        } else {
             info!("Process with PID {} is running.", stored_pid);
             return true;
         }
-    }        
+    }
 }
 
-
 /// Runs the auto signup fully o nce
-/// Gets the credentials, the access token 
+/// Gets the credentials, the access token
 /// Automatically signs up for all the tests
 /// Prints the result of execution
-async fn run_auto_sign_up(is_loop: bool) -> Result<(),()> {
+async fn run_auto_sign_up(is_loop: bool) -> Result<(), ()> {
     info!("Fetching credentials from config file.");
     let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
-    
 
     let credentials;
 
@@ -271,25 +292,34 @@ async fn run_auto_sign_up(is_loop: bool) -> Result<(),()> {
         }
     }
 
-    let access_token = credentials.access_token.expect("Access token should be present");
+    let access_token = credentials
+        .access_token
+        .expect("Access token should be present");
     let registration_result;
     loop {
-        let request = api::register_for_tests(&access_token, api::REGISTERED_COURSE_URL, api::TEST_COURSE_URL, api::TEST_REGISTRATION_URL);
+        let request = api::register_for_tests(
+            &access_token,
+            api::REGISTERED_COURSE_URL,
+            api::TEST_COURSE_URL,
+            api::TEST_REGISTRATION_URL,
+        );
         if let Some(data) = handle_request(is_loop, request.await) {
             registration_result = data;
             break;
         }
     }
-    
-    
-    let course_korte_naam_result: Vec<String> = registration_result.iter()
+
+    let course_korte_naam_result: Vec<String> = registration_result
+        .iter()
         .map(|test_list| test_list.cursus_korte_naam.clone())
         .collect();
     if course_korte_naam_result.is_empty() {
         info!("No exams were enrolled for.");
-    }
-    else {
-        info!("Successfully enrolled for the following exams: {:?}", course_korte_naam_result);
+    } else {
+        info!(
+            "Successfully enrolled for the following exams: {:?}",
+            course_korte_naam_result
+        );
         // Send desktop notification
         for course_name in course_korte_naam_result {
             show_notification(&course_name);
@@ -301,7 +331,10 @@ async fn run_auto_sign_up(is_loop: bool) -> Result<(),()> {
 fn show_notification(course_name: &str) {
     Notification::new()
         .summary("Exam Registration Success")
-        .body(&format!("You have been successfully registered for the exam: {}", course_name))
+        .body(&format!(
+            "You have been successfully registered for the exam: {}",
+            course_name
+        ))
         .icon("info")
         .show()
         .unwrap();
@@ -309,9 +342,7 @@ fn show_notification(course_name: &str) {
 
 fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
     match request {
-        Ok(data) => {
-            Some(data)
-        }
+        Ok(data) => Some(data),
         Err(e) => {
             if !is_loop {
                 panic!("{}", "A network error likely occured".red().bold());
@@ -336,19 +367,23 @@ fn get_config_path(config_dir: &str, config_file: &str) -> std::path::PathBuf {
 }
 
 fn store_pid(process_id: Option<u32>) {
-    let pid = Pid {pid: process_id};
+    let pid = Pid { pid: process_id };
     let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
     let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
 }
 
 /// Retrieves valid credentials with an access token.
 /// If the access token is missing or invalid, it fetches a new one and updates the config.
-async fn get_valid_credentials(config_path: &std::path::Path) -> Result<Credentials, Box<dyn std::error::Error>> {
+async fn get_valid_credentials(
+    config_path: &std::path::Path,
+) -> Result<Credentials, Box<dyn std::error::Error>> {
     // Retrieve stored credentials (with or without access token)
     let mut credentials = load_credentials(config_path);
 
     loop {
-        let is_cred_empty = credentials.username.is_none() && credentials.password.is_none() && credentials.access_token.is_none();
+        let is_cred_empty = credentials.username.is_none()
+            && credentials.password.is_none()
+            && credentials.access_token.is_none();
 
         // Only show the spinner if not in daemonized mode
         let pb = if env::var("DAEMONIZED").is_err() && !is_cred_empty {
@@ -382,7 +417,7 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Result<Credenti
 
         // Check if username and password exist
         match (&credentials.username, &credentials.password) {
-        // Access token is missing or invalid; prompt for correct credentials if needed
+            // Access token is missing or invalid; prompt for correct credentials if needed
             (Some(username), Some(password)) => {
                 match api::get_access_token(username, password).await {
                     Ok(new_token) => {
@@ -406,7 +441,12 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Result<Credenti
                         }
                         if !is_cred_empty {
                             // TODO: problematic for autorun.
-                            eprintln!("{}", "Login failed: username or password incorrect. Please try again.".red().bold());
+                            eprintln!(
+                                "{}",
+                                "Login failed: username or password incorrect. Please try again."
+                                    .red()
+                                    .bold()
+                            );
                         }
                         credentials = prompt_for_credentials();
                     }
@@ -437,7 +477,9 @@ fn prompt_for_credentials() -> Credentials {
 
     print!("Username: ");
     let _ = io::stdout().flush();
-    io::stdin().read_line(&mut username).expect("Couldn't read username");
+    io::stdin()
+        .read_line(&mut username)
+        .expect("Couldn't read username");
 
     print!("Password: ");
     let _ = io::stdout().flush();
@@ -453,15 +495,17 @@ fn prompt_for_credentials() -> Credentials {
 /// Saves updated credentials to the config file
 fn save_credentials(credentials: &Credentials, config_path: &std::path::Path) {
     let serialized = serde_json::to_string(&credentials).expect("Failed to serialize credentials");
-    std::fs::create_dir_all(config_path.parent().expect("Failed to get parent directory"))
-        .expect("Failed to create config directory");
+    std::fs::create_dir_all(
+        config_path
+            .parent()
+            .expect("Failed to get parent directory"),
+    )
+    .expect("Failed to create config directory");
     std::fs::write(config_path, serialized).expect("Failed to save credentials");
 }
 
-
 /// Sets up the program to run on boot
 fn setup_run_on_boot(interval: &u32) {
-
     #[cfg(target_os = "windows")]
     let result = run_on_boot_windows(interval);
 
@@ -470,27 +514,30 @@ fn setup_run_on_boot(interval: &u32) {
 
     if result.is_ok() {
         info!("Boot setup was succesful");
-    }
-    else {
+    } else {
         error!("Boot setup encountered an error")
     }
-
 }
 
 #[cfg(target_os = "windows")]
 fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
-    let exe_path = env::current_exe()?;  
+    let exe_path = env::current_exe()?;
     // Path to the startup folder
-    let startup_path = format!(r"{}\Microsoft\Windows\Start Menu\Programs\Startup\{}.lnk",env::var("APPDATA")?, APP_NAME);
+    let startup_path = format!(
+        r"{}\Microsoft\Windows\Start Menu\Programs\Startup\{}.lnk",
+        env::var("APPDATA")?,
+        APP_NAME
+    );
 
     let args = format!("start --interval={interval} --boot");
 
     // Use PowerShell to create a shortcut in the Startup folder
     let command = format!(
         r#"$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut('{}'); $sc.TargetPath = '{}'; $sc.Arguments = '{}'; $sc.WindowStyle = 7; $sc.Save()"#,
-        startup_path, exe_path.to_string_lossy(), args 
+        startup_path,
+        exe_path.to_string_lossy(),
+        args
     );
-
 
     Command::new("powershell")
         .args(&["-Command", &command])
@@ -501,18 +548,18 @@ fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>>
 
 #[cfg(target_os = "linux")]
 fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
-
     let exe_path = env::current_exe()?;
-    let exe_path = exe_path.to_string_lossy();  
+    let exe_path = exe_path.to_string_lossy();
 
     let autostart_dir = dirs::config_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Config directory not found")).expect("Error occured")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Config directory not found"))
+        .expect("Error occured")
         .join("autostart");
 
     std::fs::create_dir_all(&autostart_dir).expect("Couldn't create directory");
 
     // Create the .desktop file
-    let desktop_file_path = autostart_dir.join(APP_NAME.to_string() +  ".desktop");
+    let desktop_file_path = autostart_dir.join(APP_NAME.to_string() + ".desktop");
     let desktop_entry = format!(
         "[Desktop Entry]\nType=Application\nName={}\nExec={}\nX-GNOME-Autostart-enabled=true\n",
         APP_NAME,
@@ -524,7 +571,6 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -599,10 +645,10 @@ mod tests {
         let credentials = Credentials {
             username: Some("testuser".to_string()),
             password: Some("testpassword".to_string()),
-            access_token: None
+            access_token: None,
         };
-        let serialized = serde_json::to_string(&credentials)
-            .expect("Failed to serialize credentials");
+        let serialized =
+            serde_json::to_string(&credentials).expect("Failed to serialize credentials");
         std::fs::create_dir_all(config_file_path.parent().unwrap()).unwrap();
         let mut file = std::fs::File::create(&config_file_path).unwrap();
         file.write_all(serialized.as_bytes()).unwrap();
