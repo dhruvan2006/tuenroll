@@ -107,7 +107,7 @@ async fn submit_login_form(
         return Ok(body);
     }
 
-    Err("Login failed: Incorrect username or password or form action not found.".into())
+    Err("Incorrect username or password or form action not found".into())
 }
 
 fn extract_saml_response(body: &str) -> (String, String, String) {

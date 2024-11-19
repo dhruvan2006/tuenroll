@@ -1,8 +1,9 @@
 mod api;
+mod creds;
 mod models;
 use clap::{Parser, Subcommand};
 use colored::*;
-use indicatif::{ProgressBar, ProgressStyle};
+use creds::{CredentialManager, Credentials};
 use log::{error, info, warn};
 use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
@@ -12,13 +13,6 @@ use std::io::Write;
 use std::os::windows::process::CommandExt;
 use std::{env, io};
 use std::{process::Command, thread, time};
-
-#[derive(Serialize, Deserialize)]
-struct Credentials {
-    username: Option<String>,
-    password: Option<String>,
-    access_token: Option<String>,
-}
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -69,16 +63,22 @@ async fn main() {
 
     let cli = Cli::parse();
 
+    let manager = CredentialManager::new(get_config_path(CONFIG_DIR, CONFIG_FILE));
+
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            match run_auto_sign_up(false).await {
+            let credentials = get_credentials(&manager, false).await;
+            match run_auto_sign_up(false, &credentials).await {
                 Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
                 Err(()) => println!("{}", "Failure: A network error occured".red().bold()),
             }
         }
         Commands::Start { interval, boot } => {
             info!("Starting the 'Start' command execution.");
+
+            let credentials = get_credentials(&manager, true).await;
+
             // WARNING: Do not have any print statements or the the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
                 // Checks whether a process was running, if not don't run the program
@@ -112,7 +112,7 @@ async fn main() {
                 return;
             } else {
                 info!("Daemon process enabled: starting loop");
-                run_loop(interval).await;
+                run_loop(interval, credentials).await;
             }
         }
         Commands::Stop => {
@@ -131,33 +131,17 @@ async fn main() {
         }
         Commands::Change => {
             info!("Changing credentials.");
-            match change_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE)).await {
+            match manager.change_credentials().await {
                 Ok(_) => println!("{}", "Success: Credentials changed!".green().bold()),
                 Err(_) => println!("{}", "Failed: A network problem occured.".red().bold()),
             }
         }
         Commands::Delete => {
             info!("Deleting credentials.");
-            delete_credentials(&get_config_path(CONFIG_DIR, CONFIG_FILE));
+            manager.delete_credentials();
             println!("{}", "Success: Credentials deleted!".green().bold());
         }
     }
-}
-
-async fn change_credentials(
-    config_path: &std::path::Path,
-) -> Result<Credentials, Box<dyn std::error::Error>> {
-    delete_credentials(config_path);
-    get_valid_credentials(config_path).await
-}
-
-fn delete_credentials(config_path: &std::path::Path) {
-    let creds = Credentials {
-        username: None,
-        password: None,
-        access_token: None,
-    };
-    save_credentials(&creds, config_path);
 }
 
 fn set_up_logging() {
@@ -180,10 +164,10 @@ fn set_up_logging() {
     info!("Initialized the logger");
 }
 
-async fn run_loop(interval: &u32) {
+async fn run_loop(interval: &u32, credentials: Credentials) {
     loop {
-        let _ = run_auto_sign_up(true).await;
-        let duration = time::Duration::from_secs((interval * 3600).into());
+        let _ = run_auto_sign_up(true, &credentials).await;
+        let duration = time::Duration::from_secs(5);
         thread::sleep(duration);
     }
 }
@@ -274,26 +258,29 @@ fn process_is_running() -> bool {
     }
 }
 
-/// Runs the auto signup fully o nce
-/// Gets the credentials, the access token
-/// Automatically signs up for all the tests
-/// Prints the result of execution
-async fn run_auto_sign_up(is_loop: bool) -> Result<(), ()> {
-    info!("Fetching credentials from config file.");
-    let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
-
+async fn get_credentials(manager: &CredentialManager, is_loop: bool) -> Credentials {
     let credentials;
 
     loop {
-        let request = get_valid_credentials(&config_path);
+        let request = manager.get_valid_credentials();
         if let Some(data) = handle_request(is_loop, request.await) {
             credentials = data;
             break;
         }
     }
 
+    credentials
+}
+
+/// Runs the auto signup fully o nce
+/// Gets the credentials, the access token
+/// Automatically signs up for all the tests
+/// Prints the result of execution
+async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<(), ()> {
+    info!("Fetching credentials from config file.");
+
     let access_token = credentials
-        .access_token
+        .access_token.clone()
         .expect("Access token should be present");
     let registration_result;
     loop {
@@ -370,138 +357,6 @@ fn store_pid(process_id: Option<u32>) {
     let pid = Pid { pid: process_id };
     let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
     let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
-}
-
-/// Retrieves valid credentials with an access token.
-/// If the access token is missing or invalid, it fetches a new one and updates the config.
-async fn get_valid_credentials(
-    config_path: &std::path::Path,
-) -> Result<Credentials, Box<dyn std::error::Error>> {
-    // Retrieve stored credentials (with or without access token)
-    let mut credentials = load_credentials(config_path);
-
-    loop {
-        let is_cred_empty = credentials.username.is_none()
-            && credentials.password.is_none()
-            && credentials.access_token.is_none();
-
-        // Only show the spinner if not in daemonized mode
-        let pb = if env::var("DAEMONIZED").is_err() && !is_cred_empty {
-            let pb = ProgressBar::new_spinner();
-            pb.set_style(
-                ProgressStyle::default_spinner()
-                    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-                    .template("{spinner:.green} {msg}")
-                    .unwrap(),
-            );
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            pb.set_message("Validating credentials...");
-            Some(pb)
-        } else {
-            None
-        };
-
-        // If there's an access token, check if it's still valid
-        if let Some(ref token) = credentials.access_token {
-            let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
-                .await
-                .unwrap_or(false);
-
-            if let Some(pb) = pb.as_ref() {
-                pb.finish_and_clear();
-            }
-            if is_valid {
-                return Ok(credentials);
-            }
-        }
-
-        // Check if username and password exist
-        match (&credentials.username, &credentials.password) {
-            // Access token is missing or invalid; prompt for correct credentials if needed
-            (Some(username), Some(password)) => {
-                match api::get_access_token(username, password).await {
-                    Ok(new_token) => {
-                        credentials.access_token = Some(new_token);
-                        save_credentials(&credentials, config_path);
-                        if let Some(pb) = pb.as_ref() {
-                            pb.finish_and_clear();
-                        }
-                        // TODO: Print might be problematic for autorun
-                        println!("{}", "Success: Credentials are valid!".green().bold());
-                        return Ok(credentials);
-                    }
-                    Err(e) => {
-                        // If it is a connection error, the error needs to be thrown
-                        if e.to_string().contains("error sending request") {
-                            return Err(e);
-                        }
-
-                        if let Some(pb) = pb.as_ref() {
-                            pb.finish_and_clear();
-                        }
-                        if !is_cred_empty {
-                            // TODO: problematic for autorun.
-                            eprintln!(
-                                "{}",
-                                "Login failed: username or password incorrect. Please try again."
-                                    .red()
-                                    .bold()
-                            );
-                        }
-                        credentials = prompt_for_credentials();
-                    }
-                }
-            }
-            _ => {
-                credentials = prompt_for_credentials();
-            }
-        }
-    }
-}
-
-/// Loads credentials from config file or prompts the user to enter them if missing.
-// TODO: Test load_credentials() with input from stdin
-fn load_credentials(config_path: &std::path::Path) -> Credentials {
-    if let Ok(data) = std::fs::read_to_string(config_path) {
-        if let Ok(credentials) = serde_json::from_str::<Credentials>(&data) {
-            return credentials;
-        }
-    }
-
-    prompt_for_credentials()
-}
-
-/// Prompts the user for their username and password.
-fn prompt_for_credentials() -> Credentials {
-    let mut username = String::new();
-
-    print!("Username: ");
-    let _ = io::stdout().flush();
-    io::stdin()
-        .read_line(&mut username)
-        .expect("Couldn't read username");
-
-    print!("Password: ");
-    let _ = io::stdout().flush();
-    let password = rpassword::read_password().expect("Failed to read password");
-
-    Credentials {
-        username: Some(username.trim().to_string()),
-        password: Some(password.trim().to_string()),
-        access_token: None,
-    }
-}
-
-/// Saves updated credentials to the config file
-fn save_credentials(credentials: &Credentials, config_path: &std::path::Path) {
-    let serialized = serde_json::to_string(&credentials).expect("Failed to serialize credentials");
-    std::fs::create_dir_all(
-        config_path
-            .parent()
-            .expect("Failed to get parent directory"),
-    )
-    .expect("Failed to create config directory");
-    std::fs::write(config_path, serialized).expect("Failed to save credentials");
 }
 
 /// Sets up the program to run on boot
@@ -589,74 +444,5 @@ mod tests {
 
         let expected_path = temp_home.path().join(CONFIG_DIR).join(CONFIG_FILE);
         assert_eq!(expected_path, config_path);
-    }
-
-    /// Test depends on `save_credentials()`
-    #[test]
-    fn test_delete_credentials() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_path = temp_dir.path().join(CONFIG_FILE);
-
-        let credentials = Credentials {
-            username: Some("testuser".to_string()),
-            password: Some("testpassword".to_string()),
-            access_token: Some("testtoken".to_string()),
-        };
-
-        save_credentials(&credentials, &config_path.as_path());
-
-        delete_credentials(config_path.as_path());
-
-        let saved_data = std::fs::read_to_string(&config_path).unwrap();
-        let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
-
-        assert_eq!(saved_credentials.username, None);
-        assert_eq!(saved_credentials.password, None);
-        assert_eq!(saved_credentials.access_token, None);
-    }
-
-    #[test]
-    fn test_save_credentials() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_path = temp_dir.path().join(CONFIG_FILE);
-
-        let credentials = Credentials {
-            username: Some("testuser".to_string()),
-            password: Some("testpassword".to_string()),
-            access_token: Some("testtoken".to_string()),
-        };
-
-        save_credentials(&credentials, &config_path);
-
-        let saved_data = std::fs::read_to_string(&config_path).unwrap();
-        let saved_credentials: Credentials = serde_json::from_str(&saved_data).unwrap();
-
-        assert_eq!(saved_credentials.username.unwrap(), "testuser");
-        assert_eq!(saved_credentials.password.unwrap(), "testpassword");
-        assert_eq!(saved_credentials.access_token.unwrap(), "testtoken");
-    }
-
-    /// Set up a temp `CONFIG_FILE` file with test credentials to assert whether `get_credentials()`
-    /// can read from the file and return the accurate `username` and `password`
-    #[test]
-    fn test_load_credentials_with_valid_file() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_file_path = temp_dir.path().join(CONFIG_FILE);
-
-        let credentials = Credentials {
-            username: Some("testuser".to_string()),
-            password: Some("testpassword".to_string()),
-            access_token: None,
-        };
-        let serialized =
-            serde_json::to_string(&credentials).expect("Failed to serialize credentials");
-        std::fs::create_dir_all(config_file_path.parent().unwrap()).unwrap();
-        let mut file = std::fs::File::create(&config_file_path).unwrap();
-        file.write_all(serialized.as_bytes()).unwrap();
-
-        let result = load_credentials(&*config_file_path);
-
-        assert_eq!(result.username.unwrap(), "testuser");
-        assert_eq!(result.password.unwrap(), "testpassword");
     }
 }
