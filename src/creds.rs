@@ -221,6 +221,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn test_save_credentials_invalid_path() {
         let invalid_path = Path::new("/invalid/directory/path/test_config.json");
 

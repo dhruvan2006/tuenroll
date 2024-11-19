@@ -158,7 +158,7 @@ async fn submit_saml_response(
 
     let code_url = response.url().as_str();
     let code = code_url
-        .split("=")
+        .split('=')
         .last()
         .expect("Code for authorization missing");
 
