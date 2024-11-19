@@ -1,20 +1,22 @@
-use std::collections::HashMap;
-use serde_json::Value;
 use crate::models::{CourseList, TestList};
+use serde_json::Value;
+use std::collections::HashMap;
 
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
 
 pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/cursussen?toon_historie=N&limit=25";
-pub const TEST_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
-pub const TEST_REGISTRATION_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
+pub const TEST_COURSE_URL: &str =
+    "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
+pub const TEST_REGISTRATION_URL: &str =
+    "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
 
 /// Verifies if the user is authenticated by checking for the presence of a redirect URL
 /// indicating the need for authentication. If the response does not contain an
 /// authentication redirect URL, it is assumed the user is authenticated.
 pub async fn is_user_authenticated(
     access_token: &str,
-    url: &str
+    url: &str,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
@@ -31,22 +33,34 @@ pub async fn is_user_authenticated(
 
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
 /// This token can be used for accessing resources at `https://my.tudelft.nl/`.
-/// 
+///
 /// Include the HTTP header `Authorization: Bearer <access_token>`
-pub async fn get_access_token(username: &str, password: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn get_access_token(
+    username: &str,
+    password: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
     let (url, body) = initiate_authorization(&client, AUTH_URL).await?;
     let auth_state = get_auth_state(&body);
     let body = submit_login_form(&client, username, password, &url, &auth_state).await?;
     let (form_action, saml_response, relay_state) = extract_saml_response(&body);
-    let code = submit_saml_response(&client, form_action.as_str(), saml_response.as_str(), relay_state.as_str()).await?;
-    
+    let code = submit_saml_response(
+        &client,
+        form_action.as_str(),
+        saml_response.as_str(),
+        relay_state.as_str(),
+    )
+    .await?;
+
     let access_token = request_access_token(&client, &code, TOKEN_URL).await?;
     Ok(access_token)
 }
 
-async fn initiate_authorization(client: &reqwest::Client, url: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
+async fn initiate_authorization(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
     let response = client.post(url).send().await?;
     let url = response.url().as_str().to_string();
     let body = response.text().await?;
@@ -54,16 +68,26 @@ async fn initiate_authorization(client: &reqwest::Client, url: &str) -> Result<(
 }
 
 fn get_auth_state(body: &str) -> String {
-    let document = scraper::Html::parse_document(&body);
+    let document = scraper::Html::parse_document(body);
     let form_selector = scraper::Selector::parse("form[name='f']").unwrap();
     let form_element = document.select(&form_selector).next().unwrap();
 
     let auth_state_selector = scraper::Selector::parse("input[name='AuthState']").unwrap();
     let auth_state_element = form_element.select(&auth_state_selector).next().unwrap();
-    auth_state_element.value().attr("value").unwrap().to_string()
+    auth_state_element
+        .value()
+        .attr("value")
+        .unwrap()
+        .to_string()
 }
 
-async fn submit_login_form(client: &reqwest::Client, username: &str, password: &str, url: &str, auth_state: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn submit_login_form(
+    client: &reqwest::Client,
+    username: &str,
+    password: &str,
+    url: &str,
+    auth_state: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut form_data = reqwest::multipart::Form::new();
     form_data = form_data.text("username", username.to_string());
     form_data = form_data.text("password", password.to_string());
@@ -75,8 +99,10 @@ async fn submit_login_form(client: &reqwest::Client, username: &str, password: &
     // Checks whether the username/password was correct by checking if
     // form is in the response HTML
     let document = scraper::Html::parse_document(&body);
-    let form_selector = scraper::Selector::parse("form[action='https://osilogin.tudelft.nl/osirissaml/saml2/acs/osiris-student']")
-        .expect("Invalid form selector");
+    let form_selector = scraper::Selector::parse(
+        "form[action='https://osilogin.tudelft.nl/osirissaml/saml2/acs/osiris-student']",
+    )
+    .expect("Invalid form selector");
     if document.select(&form_selector).next().is_some() {
         return Ok(body);
     }
@@ -85,7 +111,7 @@ async fn submit_login_form(client: &reqwest::Client, username: &str, password: &
 }
 
 fn extract_saml_response(body: &str) -> (String, String, String) {
-    let document = scraper::Html::parse_document(&body);
+    let document = scraper::Html::parse_document(body);
 
     let form_selector = scraper::Selector::parse("form").unwrap();
     let form_element = document.select(&form_selector).next().unwrap();
@@ -103,7 +129,12 @@ fn extract_input_value(element: &scraper::ElementRef, selector_str: &str) -> Str
     input_element.value().attr("value").unwrap().to_string()
 }
 
-async fn submit_saml_response(client: &reqwest::Client, form_action: &str, saml_response: &str, relay_state: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn submit_saml_response(
+    client: &reqwest::Client,
+    form_action: &str,
+    saml_response: &str,
+    relay_state: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut form_data = HashMap::new();
     form_data.insert("SAMLResponse", saml_response);
     form_data.insert("RelayState", relay_state);
@@ -112,12 +143,19 @@ async fn submit_saml_response(client: &reqwest::Client, form_action: &str, saml_
     let response = request.send().await?;
 
     let code_url = response.url().as_str();
-    let code = code_url.split("=").last().expect("Code for authorization missing");
-    
+    let code = code_url
+        .split("=")
+        .last()
+        .expect("Code for authorization missing");
+
     Ok(code.to_string())
 }
 
-async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn request_access_token(
+    client: &reqwest::Client,
+    code: &str,
+    url: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut body = HashMap::new();
     body.insert("code", code);
     body.insert("redirect_uri", "");
@@ -133,24 +171,33 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
     Ok(access_token)
 }
 
-
 /// Gets the courses that the user is currently enrolled in
 /// Gets the exams that are available for enrollment based on the courses
 /// Signs up to those exams
-pub async fn register_for_tests(access_token: &str, registered_course_url: &str, test_course_url: &str, test_registration_url: &str) -> Result<Vec<TestList>, Box<dyn std::error::Error>> {
+pub async fn register_for_tests(
+    access_token: &str,
+    registered_course_url: &str,
+    test_course_url: &str,
+    test_registration_url: &str,
+) -> Result<Vec<TestList>, Box<dyn std::error::Error>> {
     // Gets all the tests for all the courses that the user is currently enrolled in
-    let courses = get_course_list(&access_token, registered_course_url).await.expect("Fetching courses failed");  
+    let courses = get_course_list(access_token, registered_course_url)
+        .await
+        .expect("Fetching courses failed");
     let mut test_list: Vec<TestList> = Vec::new();
     for course in courses.items {
-        let course_tests = get_test_list_for_course(access_token, course.id_cursus, test_course_url).await?;
-        if course_tests.is_none() {continue}
+        let course_tests =
+            get_test_list_for_course(access_token, course.id_cursus, test_course_url).await?;
+        if course_tests.is_none() {
+            continue;
+        }
         test_list.push(course_tests.expect("TestList not found"));
     }
 
     // Enroll for all the tests found
     let mut enrollments = Vec::new();
     for test in test_list {
-        if register_for_test(&access_token, &test, &test_registration_url).await? {
+        if register_for_test(access_token, &test, test_registration_url).await? {
             enrollments.push(test);
         }
     }
@@ -158,14 +205,20 @@ pub async fn register_for_tests(access_token: &str, registered_course_url: &str,
     Ok(enrollments)
 }
 
-
 /// Retrieves the user's registered course list from `course_url` using a JWT `access_token`.
 /// Returns a `CourseList` if successful. If the token is invalid or expired,
 /// it returns an error with a redirect URL for reauthentication
-pub async fn get_course_list(access_token: &str, course_url: &str) -> Result<CourseList, Box<dyn std::error::Error>> {
+pub async fn get_course_list(
+    access_token: &str,
+    course_url: &str,
+) -> Result<CourseList, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
-    let response = client.get(course_url).bearer_auth(access_token).send().await?;
+    let response = client
+        .get(course_url)
+        .bearer_auth(access_token)
+        .send()
+        .await?;
     let response_text = response.text().await?;
     let response_json: Value = serde_json::from_str(&response_text)?;
 
@@ -174,7 +227,8 @@ pub async fn get_course_list(access_token: &str, course_url: &str) -> Result<Cou
         return Err(format!(
             "Unauthenticated: Redirect to {}",
             auth_redirect_url.as_str().unwrap_or("unknown URL")
-        ).into());
+        )
+        .into());
     }
 
     // TODO: The URL is hardcoded to include max of 25 courses.
@@ -185,11 +239,19 @@ pub async fn get_course_list(access_token: &str, course_url: &str) -> Result<Cou
 /// Retrieves the list of tests availble for registration given the `course_id` using a JWT `access_token`.
 /// Returns a `TestList` if successful. If the `course_id` does not have a test open for enrollment
 /// the function returns an error
-pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &str) -> Result<Option<TestList>, Box<dyn std::error::Error>> {
+pub async fn get_test_list_for_course(
+    access_token: &str,
+    course_id: u32,
+    url: &str,
+) -> Result<Option<TestList>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
     let test_url = url.to_string() + course_id.to_string().as_str();
-    let response = client.get(test_url).bearer_auth(access_token).send().await?;
+    let response = client
+        .get(test_url)
+        .bearer_auth(access_token)
+        .send()
+        .await?;
     let response_json: Value = response.json().await?;
 
     // URL endpoint returns JSON with failure if no tests open for enrollment
@@ -206,25 +268,38 @@ pub async fn get_test_list_for_course(access_token: &str, course_id: u32, url: &
 /// Returns `true` if registration was successful and `false` if the registration failed.
 /// `Err` is returned for any other issue.
 // TODO: How to test this method?
-pub async fn register_for_test(access_token: &str, toetsen: &TestList, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
+pub async fn register_for_test(
+    access_token: &str,
+    toetsen: &TestList,
+    url: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap();
 
-    let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
-
-    let response = client.post(url).bearer_auth(access_token).json(toetsen).send().await?;
+    let response = client
+        .post(url)
+        .bearer_auth(access_token)
+        .json(toetsen)
+        .send()
+        .await?;
     let json_response: Value = response.json().await?;
 
     if let Some(statusmeldingen) = json_response.get("statusmeldingen") {
         // If statusmeldingen is empty we were successful, else it reported failure
-        return if statusmeldingen.as_array().map_or(false, |arr| arr.is_empty()) {
+        return if statusmeldingen
+            .as_array()
+            .map_or(false, |arr| arr.is_empty())
+        {
             Ok(true)
         } else {
             Ok(false)
-        }
+        };
     }
 
     Err("Unexpected return format".into())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -233,12 +308,16 @@ mod tests {
     #[tokio::test]
     async fn test_is_user_authenticated_mock_authenticated() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("GET", "/test")
+        let mock = server
+            .mock("GET", "/test")
             .with_status(200)
             .with_header("Authorization", "Bearer access_token")
-            .with_body(serde_json::json!({
-                "random": "json test body"
-            }).to_string())
+            .with_body(
+                serde_json::json!({
+                    "random": "json test body"
+                })
+                .to_string(),
+            )
             .create();
 
         let url = format!("{}/test", server.url());
@@ -251,12 +330,16 @@ mod tests {
     #[tokio::test]
     async fn test_is_user_authenticated_mock_unauthenticated() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("GET", "/test")
+        let mock = server
+            .mock("GET", "/test")
             .with_status(200)
             .with_header("Authorization", "Bearer access_token")
-            .with_body(serde_json::json!({
-                "Authenticate-Redirect-Url": "doesn't matter"
-            }).to_string())
+            .with_body(
+                serde_json::json!({
+                    "Authenticate-Redirect-Url": "doesn't matter"
+                })
+                .to_string(),
+            )
             .create();
 
         let url = format!("{}/test", server.url());
@@ -274,17 +357,22 @@ mod tests {
         let url = server.url();
         let redirect_url = format!("{}/final-destination", url);
 
-        let _mock_redirect = server.mock("POST", "/oauth/authorize")
+        let _mock_redirect = server
+            .mock("POST", "/oauth/authorize")
             .with_status(302)
             .with_header("Location", &redirect_url)
             .create();
 
-        let _mock_final_destination = server.mock("GET", "/final-destination")
+        let _mock_final_destination = server
+            .mock("GET", "/final-destination")
             .with_status(200)
             .with_body("Final destination reached")
             .create();
 
-        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let client = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap();
         let request_url = format!("{}/oauth/authorize", url);
         let response = initiate_authorization(&client, &request_url).await;
 
@@ -301,13 +389,17 @@ mod tests {
     /// Verifies that `initiate_authorization` correctly follows a live 302 redirect and ensures that the response body contains the expected form data and `AuthState` parameter.
     #[tokio::test]
     async fn test_initiate_authorization_live() {
-        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let client = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap();
         let response = initiate_authorization(&client, AUTH_URL).await;
 
         assert!(response.is_ok());
         // Url should be of the form https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState=<auth_state>
         let (url, body) = response.unwrap();
-        assert!(url.contains("https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState="));
+        assert!(url
+            .contains("https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState="));
         assert!(body.contains("<form"));
         assert!(body.contains("AuthState"));
     }
@@ -339,14 +431,20 @@ mod tests {
 
         let original_body = "<form action='https://osilogin.tudelft.nl/osirissaml/saml2/acs/osiris-student'></form>";
 
-        let _mock = server.mock("POST", "/submit_login")
+        let _mock = server
+            .mock("POST", "/submit_login")
             .with_status(200)
             .with_body(original_body)
             .create();
 
-        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let client = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap();
         let request_url = format!("{}/submit_login", url);
-        let body = submit_login_form(&client, username, password, &request_url, auth_state).await.expect("Failed to submit login form");
+        let body = submit_login_form(&client, username, password, &request_url, auth_state)
+            .await
+            .expect("Failed to submit login form");
 
         assert_eq!(body, original_body);
 
@@ -363,7 +461,7 @@ mod tests {
         "#;
 
         let (form_action, saml_response, relay_state) = extract_saml_response(html);
-        
+
         assert_eq!(form_action, "https://example.com/saml");
         assert_eq!(saml_response, "encrypted-saml-data");
         assert_eq!(relay_state, "state-123");
@@ -375,7 +473,7 @@ mod tests {
         let document = scraper::Html::parse_document(html);
         let form_selector = scraper::Selector::parse("form").unwrap();
         let form_element = document.select(&form_selector).next().unwrap();
-        
+
         let value = extract_input_value(&form_element, "input[name='test']");
         assert_eq!(value, "test-value");
     }
@@ -387,12 +485,19 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let url = server.url();
 
-        let _mock_redirect = server.mock("POST", "/saml/response")
+        let _mock_redirect = server
+            .mock("POST", "/saml/response")
             .with_status(302)
-            .with_header("Location", &format!("{}/callback?code=auth_code_example", url))
+            .with_header(
+                "Location",
+                &format!("{}/callback?code=auth_code_example", url),
+            )
             .create();
 
-        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let client = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap();
         let form_action = format!("{}/saml/response", url);
         let saml_response = "dummy_saml_response";
         let relay_state = "dummy_relay_state";
@@ -413,15 +518,22 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let url = server.url();
 
-        let _mock = server.mock("POST", "/access_token")
+        let _mock = server
+            .mock("POST", "/access_token")
             .with_status(200)
             .with_header("Content-Type", "application/json")
-            .with_body(serde_json::json!({
-                "access_token": "example_access_token"
-            }).to_string())
+            .with_body(
+                serde_json::json!({
+                    "access_token": "example_access_token"
+                })
+                .to_string(),
+            )
             .create();
 
-        let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+        let client = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap();
         let code = "auth_code_example";
         let request_url = format!("{}/access_token", url);
 
@@ -456,7 +568,7 @@ mod tests {
                 }).to_string(),
             )
             .create();
-            
+
         let course_url = &format!("{}/cursussen", server.url());
         let result = get_course_list("valid_token", course_url).await;
 
@@ -477,15 +589,19 @@ mod tests {
     async fn test_get_course_list_mock_error() {
         let mut server = mockito::Server::new_async().await;
 
-        let _mock_redirect = server.mock("GET", "/cursussen")
+        let _mock_redirect = server
+            .mock("GET", "/cursussen")
             .with_status(401)
             .with_body(r#"{ "Authenticate-Redirect-Url": "https://auth.url/reauthenticate" }"#)
             .create();
-        
+
         let url = format!("{}/cursussen", server.url());
         let result = get_course_list("test-access-token", &url).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Redirect to https://auth.url/reauthenticate"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Redirect to https://auth.url/reauthenticate"));
     }
 
     /// Tests `get_test_list_for_course` by simulating a successful request to retrieve tests available
@@ -580,7 +696,6 @@ mod tests {
             )
             .create();
 
-        
         // Mocks for all the get requests of the tests for each course
         let _mock_test_software_quality = server.mock("GET", "/tests/1234")
             .match_header("authorization", "Bearer valid_token")
@@ -606,14 +721,17 @@ mod tests {
             }).to_string())
             .create();
 
-        let _mock_test_software_project = server.mock("GET", "/tests/99999999")
+        let _mock_test_software_project = server
+            .mock("GET", "/tests/99999999")
             .match_header("authorization", "Bearer valid_token")
             .with_status(200)
-            .with_body(serde_json::json!({
-                "failure": "some"
-            }).to_string())
-        .create();
-
+            .with_body(
+                serde_json::json!({
+                    "failure": "some"
+                })
+                .to_string(),
+            )
+            .create();
 
         // Mocks for the registration post requests
         let software_test_registration = server.mock("POST", "/test-reg")
@@ -642,7 +760,6 @@ mod tests {
             .with_body(r#"{"statusmeldingen": ""}"#)
             .create();
 
-
         let course_url = &format!("{}/cursussen", server.url());
         let test_url = &format!("{}/tests/", server.url());
         let test_reg_url = &format!("{}/test-reg", server.url());
@@ -651,6 +768,5 @@ mod tests {
         assert!(result.is_ok());
         algorithm_test_registration.assert();
         software_test_registration.assert();
-
     }
 }
