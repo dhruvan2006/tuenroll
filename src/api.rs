@@ -54,7 +54,7 @@ async fn initiate_authorization(client: &reqwest::Client, url: &str) -> Result<(
 }
 
 fn get_auth_state(body: &str) -> String {
-    let document = scraper::Html::parse_document(&body);
+    let document = scraper::Html::parse_document(body);
     let form_selector = scraper::Selector::parse("form[name='f']").unwrap();
     let form_element = document.select(&form_selector).next().unwrap();
 
@@ -85,7 +85,7 @@ async fn submit_login_form(client: &reqwest::Client, username: &str, password: &
 }
 
 fn extract_saml_response(body: &str) -> (String, String, String) {
-    let document = scraper::Html::parse_document(&body);
+    let document = scraper::Html::parse_document(body);
 
     let form_selector = scraper::Selector::parse("form").unwrap();
     let form_element = document.select(&form_selector).next().unwrap();
@@ -139,7 +139,7 @@ async fn request_access_token(client: &reqwest::Client, code: &str, url: &str) -
 /// Signs up to those exams
 pub async fn register_for_tests(access_token: &str, registered_course_url: &str, test_course_url: &str, test_registration_url: &str) -> Result<Vec<TestList>, Box<dyn std::error::Error>> {
     // Gets all the tests for all the courses that the user is currently enrolled in
-    let courses = get_course_list(&access_token, registered_course_url).await.expect("Fetching courses failed");  
+    let courses = get_course_list(access_token, registered_course_url).await.expect("Fetching courses failed");  
     let mut test_list: Vec<TestList> = Vec::new();
     for course in courses.items {
         let course_tests = get_test_list_for_course(access_token, course.id_cursus, test_course_url).await?;
@@ -150,7 +150,7 @@ pub async fn register_for_tests(access_token: &str, registered_course_url: &str,
     // Enroll for all the tests found
     let mut enrollments = Vec::new();
     for test in test_list {
-        if register_for_test(&access_token, &test, &test_registration_url).await? {
+        if register_for_test(access_token, &test, test_registration_url).await? {
             enrollments.push(test);
         }
     }

@@ -21,7 +21,7 @@ struct Credentials {
 }
 
 #[derive(Serialize, Deserialize)]
-struct PID {
+struct Pid {
     pid: Option<u32>
 }
 
@@ -97,7 +97,7 @@ async fn main() {
                 let mut command = Command::new(env::current_exe().unwrap());
                     
                 command
-                    .args(&["start", format!("--interval={}", interval).as_str()])
+                    .args(["start", format!("--interval={}", interval).as_str()])
                     .env("DAEMONIZED", "1");
 
                 #[cfg(target_os="windows")]
@@ -141,9 +141,9 @@ async fn main() {
     }
 }
 
-async fn change_credentials(config_path: &std::path::PathBuf) -> Result<Credentials, Box<dyn std::error::Error>> {
-    delete_credentials(&config_path);
-    return get_valid_credentials(&config_path).await;
+async fn change_credentials(config_path: &std::path::Path) -> Result<Credentials, Box<dyn std::error::Error>> {
+    delete_credentials(config_path);
+    get_valid_credentials(config_path).await
 }
 
 fn delete_credentials(config_path: &std::path::Path) {
@@ -152,7 +152,7 @@ fn delete_credentials(config_path: &std::path::Path) {
         password: None,
         access_token: None,
     };
-    save_credentials(&creds, &config_path);
+    save_credentials(&creds, config_path);
 }
 
 fn set_up_logging() {
@@ -180,17 +180,17 @@ async fn run_loop(interval: &u32) {
 
 fn get_stored_pid() -> Option<u32> {
     if let Ok(pid) = std::fs::read_to_string(get_config_path(CONFIG_DIR, PID_FILE)) {
-        if let Ok(pid) = serde_json::from_str::<PID>(&pid) {
+        if let Ok(pid) = serde_json::from_str::<Pid>(&pid) {
             return pid.pid;
         }
     }
-    return None;
+    None
 }
 
 
 fn stop_program() -> Option<u32> {
     let pid = get_stored_pid();
-    if pid.is_none() {return None};
+    pid?;
     let pid = pid.unwrap();
 
     info!("Attempting to stop the process with PID: {}", pid);
@@ -222,12 +222,12 @@ fn process_is_running() -> bool {
         let process = Command::new("ps").args(["-p", stored_pid.as_str()]).output().expect("Error occured when running ps -p $PID");
         if process.status.success() {
             info!("Process with PID {} is running.", stored_pid);
-            return true;
+            true
         }
         else {
             warn!("Process with PID {} is not running. Cleaning up PID store.", stored_pid);
             store_pid(None);
-            return false;
+            false
         }
     }
     
@@ -310,7 +310,7 @@ fn show_notification(course_name: &str) {
 fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
     match request {
         Ok(data) => {
-            return Some(data);
+            Some(data)
         }
         Err(e) => {
             if !is_loop {
@@ -319,7 +319,7 @@ fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Optio
             // Logs the error and wait 5 seconds before continuing
             error!("{}", e.to_string());
             thread::sleep(time::Duration::from_secs(5));
-            return None;           
+            None
         }
     }
 }
@@ -336,7 +336,7 @@ fn get_config_path(config_dir: &str, config_file: &str) -> std::path::PathBuf {
 }
 
 fn store_pid(process_id: Option<u32>) {
-    let pid = PID {pid: process_id};
+    let pid = Pid {pid: process_id};
     let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
     let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
 }
@@ -422,7 +422,7 @@ async fn get_valid_credentials(config_path: &std::path::Path) -> Result<Credenti
 /// Loads credentials from config file or prompts the user to enter them if missing.
 // TODO: Test load_credentials() with input from stdin
 fn load_credentials(config_path: &std::path::Path) -> Credentials {
-    if let Ok(data) = std::fs::read_to_string(&config_path) {
+    if let Ok(data) = std::fs::read_to_string(config_path) {
         if let Ok(credentials) = serde_json::from_str::<Credentials>(&data) {
             return credentials;
         }
@@ -522,7 +522,7 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = std::fs::File::create(&desktop_file_path)?;
     file.write_all(desktop_entry.as_bytes())?;
 
-    return Ok(());
+    Ok(())
 }
 
 
