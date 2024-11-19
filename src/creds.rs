@@ -65,7 +65,8 @@ impl CredentialManager {
     }
 
     /// Prompt the user for credentials.
-    pub fn prompt_for_credentials(&self) -> Credentials {
+    // TODO: Test
+    fn prompt_for_credentials(&self) -> Credentials {
         let mut username = String::new();
 
         print!("Username: ");
@@ -85,6 +86,7 @@ impl CredentialManager {
         }
     }
 
+    // TODO: Test
     pub async fn change_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
         self.delete_credentials();
         self.get_valid_credentials().await
@@ -92,6 +94,7 @@ impl CredentialManager {
 
     /// Retrieves valid credentials with an access token.
     /// If the access token is missing or invalid, it fetches a new one and updates the config.
+    // TODO: Test
     pub async fn get_valid_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
         let mut credentials = Credentials::load(&self.config_path).unwrap_or_default();
         
@@ -104,14 +107,14 @@ impl CredentialManager {
                 self.cleanup_progress_bar(&pb);
             }
 
-            if self.validate_stored_token(&mut credentials).await? {
+            if self.validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL).await? {
                 pb = self.setup_progress_bar(&mut credentials);
                 self.cleanup_progress_bar(&pb);
                 return Ok(credentials);
             }
 
             pb = self.setup_progress_bar(&mut credentials);
-            if let Err(e) = self.validate_and_update_credentials(&mut credentials).await {
+            if let Err(e) = self.retrieve_new_access_token(&mut credentials).await {
                 self.cleanup_progress_bar(&pb);
                 eprintln!("{}", format!("Login failed: {e}.").red().bold());
             } else {
@@ -124,9 +127,9 @@ impl CredentialManager {
         }
     }
 
-    async fn validate_stored_token(&self, credentials: &mut Credentials) -> Result<bool, Box<dyn Error>> {
+    async fn validate_stored_token(&self, credentials: &mut Credentials, url: &str) -> Result<bool, Box<dyn Error>> {
         if let Some(token) = &credentials.access_token {
-            let is_valid = api::is_user_authenticated(token, api::REGISTERED_COURSE_URL)
+            let is_valid = api::is_user_authenticated(token, url)
                 .await
                 .unwrap_or(false);
             return Ok(is_valid);
@@ -134,8 +137,8 @@ impl CredentialManager {
         Ok(false)
     }
 
-    async fn validate_and_update_credentials(&self, credentials: &mut Credentials) -> Result<(), Box<dyn Error>> {
-        // Validate credentials or request new ones
+    async fn retrieve_new_access_token(&self, credentials: &mut Credentials) -> Result<(), Box<dyn Error>> {
+        // Request new access_token
         if let (Some(username), Some(password)) = (&credentials.username, &credentials.password)
         {
             if let Ok(new_token) = api::get_access_token(username, password).await {
@@ -176,6 +179,8 @@ impl CredentialManager {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::CONFIG_FILE;
 
     use super::*;
@@ -301,5 +306,144 @@ mod tests {
         };
 
         assert!(!credentials.is_empty());
+    }
+
+    #[test]
+    fn test_delete_credentials() {
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let config_path = temp_dir.path().join(CONFIG_FILE);
+
+        let credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("test_token".to_string()),
+        };
+
+        let _ = credentials.save(&config_path);
+
+        let manager = CredentialManager::new(config_path.clone());
+        manager.delete_credentials();
+
+        let loaded_credentials = Credentials::load(&config_path);
+        assert!(loaded_credentials.is_some());
+
+        // Check if all fields are `None`
+        let loaded_credentials = loaded_credentials.unwrap();
+        assert!(loaded_credentials.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_validate_stored_token_with_valid_token() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/test")
+            .with_status(200)
+            .with_header("Authorization", "Bearer valid_token")
+            .with_body(
+                serde_json::json!({
+                    "random": "json test body"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("valid_token".to_string()),
+        };
+
+        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+
+        let url = format!("{}/test", server.url());
+        let result = manager.validate_stored_token(&mut credentials, &url).await;
+        assert!(result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_validate_stored_token_with_expired_token() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/test")
+            .with_status(200)
+            .with_header("Authorization", "Bearer valid_token")
+            .with_body("")
+            .create();
+
+        let mut credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("expired_token".to_string()),
+        };
+
+        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+
+        let url = format!("{}/test", server.url());
+        let result = manager.validate_stored_token(&mut credentials, &url).await;
+        assert!(!result.unwrap());
+    }
+
+    
+    #[tokio::test]
+    async fn test_validate_stored_token_with_none_token() {
+        let mut credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: None,
+        };
+
+        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let result = manager.validate_stored_token(&mut credentials, "").await;
+        assert!(!result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_retrieve_new_access_token_valid_username_password() {
+        let mut credentials = Credentials {
+            username: Some("valid_user".to_string()),
+            password: Some("valid_pass".to_string()),
+            ..Default::default()
+        };
+
+        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        
+        let result = manager
+            .retrieve_new_access_token(&mut credentials)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(credentials.access_token, Some("mocked_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_retrieve_new_access_token_invalid_password() {
+        let mut credentials = Credentials {
+            username: Some("valid_user".to_string()),
+            password: Some("incorrect".to_string()),
+            ..Default::default()
+        };
+
+        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        
+        let result = manager
+            .retrieve_new_access_token(&mut credentials)
+            .await;
+
+        assert!(result.is_err());
+        assert!(credentials.access_token.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_retrieve_new_access_token_missing_creds() {
+        let mut credentials = Credentials::default();
+
+        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        
+        let result = manager
+            .retrieve_new_access_token(&mut credentials)
+            .await;
+
+        assert!(result.is_err());
+        assert!(credentials.is_empty());
     }
 }
