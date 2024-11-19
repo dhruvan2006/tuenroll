@@ -280,7 +280,8 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
     info!("Fetching credentials from config file.");
 
     let access_token = credentials
-        .access_token.clone()
+        .access_token
+        .clone()
         .expect("Access token should be present");
     let registration_result;
     loop {

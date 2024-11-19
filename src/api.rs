@@ -32,7 +32,10 @@ pub async fn is_user_authenticated(
 }
 
 #[cfg(test)]
-pub async fn get_access_token(username: &str, password: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn get_access_token(
+    username: &str,
+    password: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     // Mock implementation for tests
     if username == "valid_user" && password == "valid_pass" {
         Ok("mocked_token".to_string())

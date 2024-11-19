@@ -97,7 +97,7 @@ impl CredentialManager {
     // TODO: Test
     pub async fn get_valid_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
         let mut credentials = Credentials::load(&self.config_path).unwrap_or_default();
-        
+
         loop {
             let mut pb;
 
@@ -107,7 +107,10 @@ impl CredentialManager {
                 self.cleanup_progress_bar(&pb);
             }
 
-            if self.validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL).await? {
+            if self
+                .validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL)
+                .await?
+            {
                 pb = self.setup_progress_bar(&mut credentials);
                 self.cleanup_progress_bar(&pb);
                 return Ok(credentials);
@@ -127,7 +130,11 @@ impl CredentialManager {
         }
     }
 
-    async fn validate_stored_token(&self, credentials: &mut Credentials, url: &str) -> Result<bool, Box<dyn Error>> {
+    async fn validate_stored_token(
+        &self,
+        credentials: &mut Credentials,
+        url: &str,
+    ) -> Result<bool, Box<dyn Error>> {
         if let Some(token) = &credentials.access_token {
             let is_valid = api::is_user_authenticated(token, url)
                 .await
@@ -137,10 +144,12 @@ impl CredentialManager {
         Ok(false)
     }
 
-    async fn retrieve_new_access_token(&self, credentials: &mut Credentials) -> Result<(), Box<dyn Error>> {
+    async fn retrieve_new_access_token(
+        &self,
+        credentials: &mut Credentials,
+    ) -> Result<(), Box<dyn Error>> {
         // Request new access_token
-        if let (Some(username), Some(password)) = (&credentials.username, &credentials.password)
-        {
+        if let (Some(username), Some(password)) = (&credentials.username, &credentials.password) {
             if let Ok(new_token) = api::get_access_token(username, password).await {
                 credentials.access_token = Some(new_token);
                 let _ = credentials.save(&self.config_path);
@@ -255,7 +264,8 @@ mod tests {
         };
 
         // Serialize the credentials and write them to the file
-        let serialized = serde_json::to_string(&credentials).expect("Failed to serialize credentials");
+        let serialized =
+            serde_json::to_string(&credentials).expect("Failed to serialize credentials");
         let mut file = File::create(&config_path).expect("Failed to create file");
         file.write_all(serialized.as_bytes())
             .expect("Failed to write to file");
@@ -353,7 +363,8 @@ mod tests {
             access_token: Some("valid_token".to_string()),
         };
 
-        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager =
+            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
 
         let url = format!("{}/test", server.url());
         let result = manager.validate_stored_token(&mut credentials, &url).await;
@@ -376,14 +387,14 @@ mod tests {
             access_token: Some("expired_token".to_string()),
         };
 
-        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager =
+            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
 
         let url = format!("{}/test", server.url());
         let result = manager.validate_stored_token(&mut credentials, &url).await;
         assert!(!result.unwrap());
     }
 
-    
     #[tokio::test]
     async fn test_validate_stored_token_with_none_token() {
         let mut credentials = Credentials {
@@ -392,7 +403,8 @@ mod tests {
             access_token: None,
         };
 
-        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager =
+            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
         let result = manager.validate_stored_token(&mut credentials, "").await;
         assert!(!result.unwrap());
     }
@@ -405,11 +417,10 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
-        
-        let result = manager
-            .retrieve_new_access_token(&mut credentials)
-            .await;
+        let manager =
+            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+
+        let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_ok());
         assert_eq!(credentials.access_token, Some("mocked_token".to_string()));
@@ -423,11 +434,10 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
-        
-        let result = manager
-            .retrieve_new_access_token(&mut credentials)
-            .await;
+        let manager =
+            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+
+        let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_err());
         assert!(credentials.access_token.is_none());
@@ -437,11 +447,10 @@ mod tests {
     async fn test_retrieve_new_access_token_missing_creds() {
         let mut credentials = Credentials::default();
 
-        let manager = CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
-        
-        let result = manager
-            .retrieve_new_access_token(&mut credentials)
-            .await;
+        let manager =
+            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+
+        let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_err());
         assert!(credentials.is_empty());
