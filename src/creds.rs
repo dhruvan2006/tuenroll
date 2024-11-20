@@ -156,11 +156,9 @@ impl CredentialManager {
                     Err(e) if e.to_string().contains("error sending request") => {
                         Err("Network request error".into())
                     }
-                    _ => {
-                        Err("Invalid credentials".into())
-                    }
+                    _ => Err("Invalid credentials".into()),
                 }
-            }
+            };
         }
         Err("A network error likely occurred".into())
     }
