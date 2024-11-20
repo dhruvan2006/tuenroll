@@ -107,7 +107,7 @@ async fn submit_login_form(
         return Ok(body);
     }
 
-    Err("Login failed: Incorrect username or password or form action not found.".into())
+    Err("Incorrect username or password or form action not found".into())
 }
 
 fn extract_saml_response(body: &str) -> (String, String, String) {
@@ -144,7 +144,7 @@ async fn submit_saml_response(
 
     let code_url = response.url().as_str();
     let code = code_url
-        .split("=")
+        .split('=')
         .last()
         .expect("Code for authorization missing");
 
