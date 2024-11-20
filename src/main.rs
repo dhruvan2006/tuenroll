@@ -1,6 +1,7 @@
 mod api;
 mod creds;
 mod models;
+use api::Api;
 use clap::{Parser, Subcommand};
 use colored::*;
 use creds::{CredentialManager, Credentials};
@@ -287,8 +288,9 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
         .clone()
         .expect("Access token should be present");
     let registration_result;
+    let api = Api::new();
     loop {
-        let request = api::register_for_tests(
+        let request = api.register_for_tests(
             &access_token,
             api::REGISTERED_COURSE_URL,
             api::TEST_COURSE_URL,
