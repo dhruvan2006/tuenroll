@@ -31,24 +31,10 @@ pub async fn is_user_authenticated(
     Ok(true)
 }
 
-#[cfg(test)]
-pub async fn get_access_token(
-    username: &str,
-    password: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    // Mock implementation for tests
-    if username == "valid_user" && password == "valid_pass" {
-        Ok("mocked_token".to_string())
-    } else {
-        Err("Invalid credentials".into())
-    }
-}
-
 /// Completes the Single Sign-On (SSO) login process for the user and returns a JWT access token.
 /// This token can be used for accessing resources at `https://my.tudelft.nl/`.
 ///
 /// Include the HTTP header `Authorization: Bearer <access_token>`
-#[cfg(not(test))]
 pub async fn get_access_token(
     username: &str,
     password: &str,
