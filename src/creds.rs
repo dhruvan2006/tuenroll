@@ -99,29 +99,25 @@ impl CredentialManager {
         let mut credentials = Credentials::load(&self.config_path).unwrap_or_default();
 
         loop {
-            let mut pb;
-
             if credentials.is_empty() {
-                pb = self.setup_progress_bar(&mut credentials);
                 credentials = self.prompt_for_credentials();
-                self.cleanup_progress_bar(&pb);
             }
 
+            let pb = self.setup_progress_bar(&mut credentials);
             if self
                 .validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL)
                 .await?
             {
-                pb = self.setup_progress_bar(&mut credentials);
                 self.cleanup_progress_bar(&pb);
                 return Ok(credentials);
             }
 
-            pb = self.setup_progress_bar(&mut credentials);
             if let Err(e) = self.retrieve_new_access_token(&mut credentials).await {
                 self.cleanup_progress_bar(&pb);
                 eprintln!("{}", format!("Login failed: {e}.").red().bold());
             } else {
                 self.cleanup_progress_bar(&pb);
+                println!("{}", "Credentials validated successfully!".green().bold());
                 return Ok(credentials);
             }
 
@@ -153,7 +149,6 @@ impl CredentialManager {
             if let Ok(new_token) = api::get_access_token(username, password).await {
                 credentials.access_token = Some(new_token);
                 let _ = credentials.save(&self.config_path);
-                println!("{}", "Credentials validated successfully!".green().bold());
                 return Ok(());
             }
         }
