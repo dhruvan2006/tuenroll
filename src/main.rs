@@ -1,6 +1,7 @@
 mod api;
 mod creds;
 mod models;
+use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -159,9 +160,19 @@ fn set_up_logging() {
         .open(log_path)
         .unwrap();
 
+    // Current time in local timezone
+    let offset = chrono::Local::now().offset().local_minus_utc();
+
+    let config = ConfigBuilder::new()
+        .set_time_format_custom(simplelog::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second]"
+        ))
+        .set_time_offset(UtcOffset::from_whole_seconds(offset).unwrap())
+        .build();
+
     CombinedLogger::init(vec![
         // TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Always),
-        WriteLogger::new(LevelFilter::Info, Config::default(), log_file),
+        WriteLogger::new(LevelFilter::Info, config, log_file),
     ])
     .expect("Failed to initialize logger");
 

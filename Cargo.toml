@@ -19,3 +19,5 @@ colored = "2"
 indicatif = "0.17.9"
 tempfile = "3.14.0"
 notify-rust = "4.11.3"
+time = { version = "0.3.0-alpha-2" }
+chrono = "0.4.38"
