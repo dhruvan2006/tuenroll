@@ -114,6 +114,9 @@ async fn main() {
                 store_pid(Some(child.id()));
                 //println!("{}", "Success: Service started.".green().bold());
                 info!("Daemon process started with PID: {}", child.id());
+                if !boot {
+                    println!("Command 'Start' was successfully started");
+                }
                 return;
             } else {
                 info!("Daemon process enabled: starting loop");
