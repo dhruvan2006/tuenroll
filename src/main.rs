@@ -183,10 +183,22 @@ fn set_up_logging() {
 }
 
 async fn run_loop(interval: &u32, credentials: Credentials) {
+    let _ = run_auto_sign_up(true, &credentials).await;
+
+    let mut start_time = std::time::SystemTime::now();
     loop {
-        let _ = run_auto_sign_up(true, &credentials).await;
-        let duration = time::Duration::from_secs((interval * 3600).into());
-        thread::sleep(duration);
+        info!("Checking whether time interval is completed");
+        if std::time::SystemTime::now()
+            .duration_since(start_time)
+            .unwrap()
+            .as_secs()
+            >= (interval * 3600).into()
+        {
+            info!("Running auto sign up");
+            let _ = run_auto_sign_up(true, &credentials).await;
+            start_time = std::time::SystemTime::now();
+        }
+        thread::sleep(time::Duration::from_secs(3600));
     }
 }
 
