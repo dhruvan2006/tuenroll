@@ -64,7 +64,7 @@ impl Api {
         let body = self
             .submit_login_form(username, password, &url, &auth_state)
             .await?;
-        let (form_action, saml_response, relay_state) = Self::extract_saml_response(&body);
+        let (form_action, saml_response, relay_state) = Self::extract_saml_response(&body)?;
         let code = self
             .submit_saml_response(
                 form_action.as_str(),
@@ -127,23 +127,30 @@ impl Api {
         Err("Incorrect username or password or form action not found".into())
     }
 
-    fn extract_saml_response(body: &str) -> (String, String, String) {
+    fn extract_saml_response(
+        body: &str,
+    ) -> Result<(String, String, String), Box<dyn std::error::Error>> {
         let document = scraper::Html::parse_document(body);
 
         let form_selector = scraper::Selector::parse("form").unwrap();
         let form_element = document.select(&form_selector).next().unwrap();
         let form_action = form_element.value().attr("action").unwrap().to_string();
 
-        let saml_response = Self::extract_input_value(&form_element, "input[name='SAMLResponse']");
-        let relay_state = Self::extract_input_value(&form_element, "input[name='RelayState']");
+        let saml_response = Self::extract_input_value(&form_element, "input[name='SAMLResponse']")?;
+        let relay_state = Self::extract_input_value(&form_element, "input[name='RelayState']")?;
 
-        (form_action, saml_response, relay_state)
+        Ok((form_action, saml_response, relay_state))
     }
 
-    fn extract_input_value(element: &scraper::ElementRef, selector_str: &str) -> String {
+    fn extract_input_value(
+        element: &scraper::ElementRef,
+        selector_str: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let selector = scraper::Selector::parse(selector_str).unwrap();
-        let input_element = element.select(&selector).next().unwrap();
-        input_element.value().attr("value").unwrap().to_string()
+        match element.select(&selector).next() {
+            Some(input_element) => Ok(input_element.value().attr("value").unwrap().to_string()),
+            None => Err("Unauthenticated".into()),
+        }
     }
 
     async fn submit_saml_response(
@@ -324,8 +331,6 @@ impl Api {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     #[tokio::test]
@@ -483,7 +488,7 @@ mod tests {
             </form>
         "#;
 
-        let (form_action, saml_response, relay_state) = Api::extract_saml_response(html);
+        let (form_action, saml_response, relay_state) = Api::extract_saml_response(html).unwrap();
 
         assert_eq!(form_action, "https://example.com/saml");
         assert_eq!(saml_response, "encrypted-saml-data");
@@ -497,7 +502,7 @@ mod tests {
         let form_selector = scraper::Selector::parse("form").unwrap();
         let form_element = document.select(&form_selector).next().unwrap();
 
-        let value = Api::extract_input_value(&form_element, "input[name='test']");
+        let value = Api::extract_input_value(&form_element, "input[name='test']").unwrap();
         assert_eq!(value, "test-value");
     }
 
