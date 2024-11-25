@@ -192,13 +192,13 @@ async fn run_loop(interval: &u32, credentials: Credentials) {
             .duration_since(start_time)
             .unwrap()
             .as_secs()
-            >= (interval * 1).into()
+            >= (interval * 3600).into()
         {
             info!("Running auto sign up");
             let _ = run_auto_sign_up(true, &credentials).await;
             start_time = std::time::SystemTime::now();
         }
-        thread::sleep(time::Duration::from_secs(5));
+        thread::sleep(time::Duration::from_secs(3600));
     }
 }
 
