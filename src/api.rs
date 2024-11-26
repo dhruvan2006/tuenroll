@@ -210,7 +210,6 @@ impl Api {
             .get_course_list(access_token, registered_course_url)
             .await?; //Fetching courses failed
 
-
         let mut test_list: Vec<TestList> = Vec::new();
         for course in courses.items {
             let course_tests = self

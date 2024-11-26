@@ -297,7 +297,6 @@ async fn get_credentials(manager: &CredentialManager, is_loop: bool) -> Credenti
             credentials = data;
             break;
         }
-
     }
 
     credentials
