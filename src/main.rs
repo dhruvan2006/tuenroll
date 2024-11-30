@@ -49,13 +49,16 @@ enum Commands {
     Stop,
     /// Runs the check process one time and displays results.
     Run,
+    /// Displays the current status.
+    Status,
     /// Change username and password
     Change,
     /// Delete any saved credentials
     Delete,
+    /// Show the logs of the application
+    Log,
 }
 
-// TODO: Give a finalized name for the directory
 const APP_NAME: &str = "tuenroll";
 const CONFIG_DIR: &str = ".tuenroll";
 const CONFIG_FILE: &str = "config.json";
@@ -137,6 +140,40 @@ async fn main() {
                 );
             }
         }
+        Commands::Status => {
+            info!("Fetching the current status.");
+            let pid = get_stored_pid();
+            let process_status = if let Some(pid) = pid {
+                format!("Running (PID: {}).", pid).green()
+            } else {
+                "Not running.".to_string().red()
+            };
+
+            let credentials_status = if manager.has_credentials() {
+                "Credentials are saved.".to_string().green()
+            } else {
+                "No credentials saved.".to_string().red()
+            };
+
+            let network_status = match check_network_status().await {
+                Ok(status) => status.green(),
+                Err(_) => "Network check failed.".to_string().red(),
+            };
+
+            // let last_check_time = get_last_check_time();
+            // let last_check_status = if let Some(time) = last_check_time {
+            //     time
+            // } else {
+            //     "No previous checks recorded.".to_string()
+            // };
+
+            println!("Current Status:");
+            println!("  Service: {}", process_status);
+            println!("  Credentials: {}", credentials_status);
+            println!("  Network: {}", network_status);
+            // println!("  Last check: {}", last_check_status);
+            info!("Displayed the current status.");
+        }
         Commands::Change => {
             info!("Changing credentials.");
             match manager.change_credentials().await {
@@ -148,6 +185,20 @@ async fn main() {
             info!("Deleting credentials.");
             manager.delete_credentials();
             println!("{}", "Success: Credentials deleted!".green().bold());
+        }
+        Commands::Log => {
+            info!("Displaying the logs.");
+            let log_path = get_config_path(CONFIG_DIR, LOG_FILE);
+            match std::fs::read_to_string(log_path) {
+                Ok(log_contents) => {
+                    print!("{}", log_contents);
+                    info!("Displayed the logs successfully.");
+                }
+                Err(e) => {
+                    eprintln!("{}", format!("Error: Could not read log file: {}", e).red());
+                    error!("Error while printing the logs");
+                }
+            }
         }
     }
 }
@@ -179,7 +230,14 @@ fn set_up_logging() {
     ])
     .expect("Failed to initialize logger");
 
-    info!("Initialized the logger");
+    // info!("Initialized the logger");
+}
+
+async fn check_network_status() -> Result<String, Box<dyn std::error::Error>> {
+    match reqwest::get("https://my.tudelft.nl/").await {
+        Ok(_) => Ok("Network is up.".to_string()),
+        Err(_) => Ok("Network is down.".to_string()),
+    }
 }
 
 async fn run_loop(interval: &u32, credentials: Credentials) {
