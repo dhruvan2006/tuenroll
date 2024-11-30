@@ -163,7 +163,7 @@ async fn main() {
 
             let last_check_status = match get_last_check_time() {
                 Some(time) => time.green(),
-                None => "No previous checks recorded.".to_string().red()
+                None => "No previous checks recorded.".to_string().red(),
             };
 
             println!("Current Status:");
@@ -258,7 +258,9 @@ fn get_last_check_time() -> Option<String> {
             if let Some(last_check) = data.get("last_check") {
                 if let Some(last_check_str) = last_check.as_str() {
                     // Parse the stored time and calculate the difference
-                    if let Ok(last_check_time) = chrono::DateTime::parse_from_rfc3339(last_check_str) {
+                    if let Ok(last_check_time) =
+                        chrono::DateTime::parse_from_rfc3339(last_check_str)
+                    {
                         return Some(time_ago(last_check_time));
                     }
                 }
@@ -274,7 +276,7 @@ fn time_ago(last_check_time: chrono::DateTime<chrono::FixedOffset>) -> String {
     let duration = now.signed_duration_since(last_check_time.with_timezone(&chrono::Utc));
 
     if duration.num_seconds() < 60 {
-        return format!("{} seconds ago", duration.num_seconds());
+        format!("{} seconds ago", duration.num_seconds())
     } else if duration.num_minutes() < 60 {
         return format!("{} minutes ago", duration.num_minutes());
     } else if duration.num_hours() < 24 {
