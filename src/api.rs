@@ -208,8 +208,8 @@ impl Api {
         // Gets all the tests for all the courses that the user is currently enrolled in
         let courses = self
             .get_course_list(access_token, registered_course_url)
-            .await
-            .expect("Fetching courses failed");
+            .await?; //Fetching courses failed
+
         let mut test_list: Vec<TestList> = Vec::new();
         for course in courses.items {
             let course_tests = self

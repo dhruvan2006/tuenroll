@@ -119,6 +119,9 @@ impl CredentialManager {
             if let Err(e) = self.retrieve_new_access_token(&mut credentials).await {
                 self.cleanup_progress_bar(&pb);
                 eprintln!("{}", format!("Login failed: {e}.").red().bold());
+                if e.to_string().contains("Network request error") {
+                    return Err("Network request error;".into());
+                }
             } else {
                 self.cleanup_progress_bar(&pb);
                 println!("{}", "Credentials validated successfully!".green().bold());
