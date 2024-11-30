@@ -63,6 +63,7 @@ const APP_NAME: &str = "tuenroll";
 const CONFIG_DIR: &str = ".tuenroll";
 const CONFIG_FILE: &str = "config.json";
 const PID_FILE: &str = "process.json";
+const LAST_CHECK_FILE: &str = "last_check.json";
 const LOG_FILE: &str = "tuenroll.log";
 
 #[tokio::main]
@@ -160,18 +161,16 @@ async fn main() {
                 Err(_) => "Network check failed.".to_string().red(),
             };
 
-            // let last_check_time = get_last_check_time();
-            // let last_check_status = if let Some(time) = last_check_time {
-            //     time
-            // } else {
-            //     "No previous checks recorded.".to_string()
-            // };
+            let last_check_status = match get_last_check_time() {
+                Some(time) => time.green(),
+                None => "No previous checks recorded.".to_string().red()
+            };
 
             println!("Current Status:");
             println!("  Service: {}", process_status);
             println!("  Credentials: {}", credentials_status);
             println!("  Network: {}", network_status);
-            // println!("  Last check: {}", last_check_status);
+            println!("  Last check: {}", last_check_status);
             info!("Displayed the current status.");
         }
         Commands::Change => {
@@ -237,6 +236,55 @@ async fn check_network_status() -> Result<String, Box<dyn std::error::Error>> {
     match reqwest::get("https://my.tudelft.nl/").await {
         Ok(_) => Ok("Network is up.".to_string()),
         Err(_) => Ok("Network is down.".to_string()),
+    }
+}
+
+fn store_last_check_time() {
+    let last_check_time = chrono::Utc::now().to_rfc3339();
+    let path = get_config_path(CONFIG_DIR, LAST_CHECK_FILE);
+    let data = serde_json::json!({ "last_check": last_check_time });
+
+    match std::fs::write(path, serde_json::to_string(&data).unwrap()) {
+        Ok(_) => info!("Last check time saved."),
+        Err(e) => error!("Failed to save last check time: {}", e),
+    }
+}
+
+fn get_last_check_time() -> Option<String> {
+    let path = get_config_path(CONFIG_DIR, LAST_CHECK_FILE);
+
+    if let Ok(content) = std::fs::read_to_string(path) {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(last_check) = data.get("last_check") {
+                if let Some(last_check_str) = last_check.as_str() {
+                    // Parse the stored time and calculate the difference
+                    if let Ok(last_check_time) = chrono::DateTime::parse_from_rfc3339(last_check_str) {
+                        return Some(time_ago(last_check_time));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+// Helper function to calculate time difference
+fn time_ago(last_check_time: chrono::DateTime<chrono::FixedOffset>) -> String {
+    let now = chrono::Utc::now();
+    let duration = now.signed_duration_since(last_check_time.with_timezone(&chrono::Utc));
+
+    if duration.num_seconds() < 60 {
+        return format!("{} seconds ago", duration.num_seconds());
+    } else if duration.num_minutes() < 60 {
+        return format!("{} minutes ago", duration.num_minutes());
+    } else if duration.num_hours() < 24 {
+        return format!("{} hours ago", duration.num_hours());
+    } else if duration.num_days() < 30 {
+        return format!("{} days ago", duration.num_days());
+    } else if duration.num_days() < 365 {
+        return format!("{} months ago", duration.num_days() / 30);
+    } else {
+        return format!("{} years ago", duration.num_days() / 365);
     }
 }
 
@@ -402,6 +450,10 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
             show_notification(&course_name);
         }
     }
+
+    // Store the last check time
+    store_last_check_time();
+
     Ok(())
 }
 
