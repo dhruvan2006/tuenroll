@@ -66,6 +66,7 @@ const PID_FILE: &str = "process.json";
 const LAST_CHECK_FILE: &str = "last_check.json";
 const LOG_FILE: &str = "tuenroll.log";
 
+#[allow(clippy::zombie_processes)]
 #[tokio::main]
 async fn main() {
     set_up_logging();
