@@ -10,13 +10,15 @@ use log::{error, info, warn};
 use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use simplelog::*;
+use std::env;
 #[cfg(target_os = "linux")]
 use std::io;
 #[cfg(target_os = "linux")]
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::{env, process::Stdio};
+#[cfg(target_os = "windows")]
+use std::process::Stdio;
 use std::{process::Command, thread, time};
 
 #[derive(Serialize, Deserialize)]
