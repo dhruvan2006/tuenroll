@@ -60,7 +60,6 @@ enum Commands {
 // TODO: Give a finalized name for the directory
 const APP_NAME: &str = "tuenroll";
 const CONFIG_DIR: &str = ".tuenroll";
-const CONFIG_FILE: &str = "config.json";
 const PID_FILE: &str = "process.json";
 const LOG_FILE: &str = "tuenroll.log";
 
@@ -71,7 +70,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new(get_config_path(CONFIG_DIR, CONFIG_FILE));
+    let manager = CredentialManager::new();
 
     match &cli.command {
         Commands::Run => {
