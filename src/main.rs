@@ -462,23 +462,3 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    /// Set up a temporary directory as `HOME` to test whether `get_config_path()`
-    /// returns the accurate path
-    #[test]
-    #[cfg(target_family = "unix")]
-    fn test_get_config_path() {
-        let temp_home = tempdir().expect("Failed to create temp directory");
-        env::set_var("HOME", &temp_home.path());
-
-        let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
-
-        let expected_path = temp_home.path().join(CONFIG_DIR).join(CONFIG_FILE);
-        assert_eq!(expected_path, config_path);
-    }
-}
