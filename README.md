@@ -10,6 +10,15 @@ Use the package manager `cargo` to install tuenroll.
 cargo install tuenroll
 ```
 
+Ubuntu:
+```bash
+sudo apt install libdbus-1-dev pkg-config
+```
+Fedora:
+```bash
+sudo dnf install dbus-devel pkgconf-pkg-config
+```
+
 ## Usage
 ### 1. Start background service:
 ```bash
