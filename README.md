@@ -3,6 +3,8 @@ TUEnroll is a CLI tool designed to automate exam registrations at TU Delft.
 
 It periodically checks for open exam registrations and automatically registers you when new exams are available.
 
+![TUEnroll Logo](logo.png)
+
 ## Installation
 Use the package manager `cargo` to install tuenroll.
 
