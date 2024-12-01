@@ -270,6 +270,8 @@ mod tests {
 
         save_test_credentials(&test_service, &credentials);
 
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
         // Verify credentials were saved
         assert_eq!(
             Entry::new(&test_service, "username")
@@ -303,6 +305,8 @@ mod tests {
 
         save_test_credentials(&test_service, &credentials);
 
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
         // Load credentials from the keyring
         let loaded_credentials = Credentials::load_from_keyring(&test_service).unwrap();
         assert_eq!(loaded_credentials.username, credentials.username);
@@ -316,6 +320,8 @@ mod tests {
     fn test_load_credentials_from_keyring_missing() {
         let test_service = generate_unique_service();
         cleanup_service(&test_service);
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         let loaded_credentials = Credentials::load_from_keyring(&test_service).unwrap();
 
@@ -331,6 +337,8 @@ mod tests {
 
         save_test_credentials(&test_service, &empty_credentials);
 
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
         verify_credentials_absence(&test_service);
 
         cleanup_service(&test_service);
@@ -342,6 +350,8 @@ mod tests {
         let credentials = setup_test_credentials();
 
         save_test_credentials(&test_service, &credentials);
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         // Delete credentials
         cleanup_service(&test_service);
