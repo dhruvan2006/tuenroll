@@ -17,6 +17,8 @@ use std::io;
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::process::Stdio;
 use std::{process::Command, thread, time};
 
 #[derive(Serialize, Deserialize)]
@@ -222,6 +224,8 @@ fn stop_program() -> Option<u32> {
     #[cfg(target_os = "windows")]
     let kill = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
+        .stdout(Stdio::null()) // Suppress standard output
+        .stderr(Stdio::null()) // Suppress standard error
         .spawn();
 
     #[cfg(not(target_os = "windows"))]
