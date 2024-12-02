@@ -497,6 +497,7 @@ mod tests {
         assert!(credentials.is_empty());
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_has_credentials_non_empty_keyring() {
         let service = generate_unique_service();
