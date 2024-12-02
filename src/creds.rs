@@ -405,15 +405,15 @@ mod tests {
                 .to_string(),
             )
             .create();
-    
+
         let mut credentials = Credentials {
             username: Some("test_user".to_string()),
             password: Some("test_password".to_string()),
             access_token: Some("valid_token".to_string()),
         };
-    
+
         let manager = CredentialManager::new();
-    
+
         let url = format!("{}/test", server.url());
         let result = manager.validate_stored_token(&mut credentials, &url).await;
         assert!(result.unwrap());
@@ -512,7 +512,6 @@ mod tests {
         let _ = credentials.save_to_keyring(&service);
 
         let credential_manager = CredentialManager::new();
-
 
         // Test if has_credentials returns true
         assert!(credential_manager.has_credentials(&service));
