@@ -163,7 +163,7 @@ async fn main() {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status = if manager.has_credentials() {
+            let credentials_status = if manager.has_credentials(CredentialManager::SERVICE_NAME) {
                 "Credentials are saved.".to_string().green()
             } else {
                 "No credentials saved.".to_string().red()
