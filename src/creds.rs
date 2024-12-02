@@ -263,6 +263,7 @@ mod tests {
         let _ = Credentials::delete_from_keyring(service);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_save_to_keyring_success() {
         let test_service = generate_unique_service();
@@ -298,6 +299,7 @@ mod tests {
         cleanup_service(&test_service);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_load_credentials_from_keyring_success() {
         let test_service = generate_unique_service();
@@ -344,6 +346,7 @@ mod tests {
         cleanup_service(&test_service);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn test_delete_credentials_from_keyring() {
         let test_service = generate_unique_service();
