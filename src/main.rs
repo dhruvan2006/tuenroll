@@ -63,7 +63,6 @@ enum Commands {
 
 const APP_NAME: &str = "tuenroll";
 const CONFIG_DIR: &str = ".tuenroll";
-const CONFIG_FILE: &str = "config.json";
 const PID_FILE: &str = "process.json";
 const LAST_CHECK_FILE: &str = "last_check.json";
 const LOG_FILE: &str = "tuenroll.log";
@@ -86,7 +85,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new(get_config_path(CONFIG_DIR, CONFIG_FILE));
+    let manager = CredentialManager::new();
 
     match &cli.command {
         Commands::Run => {
@@ -613,24 +612,4 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
     file.write_all(desktop_entry.as_bytes())?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    /// Set up a temporary directory as `HOME` to test whether `get_config_path()`
-    /// returns the accurate path
-    #[test]
-    #[cfg(target_family = "unix")]
-    fn test_get_config_path() {
-        let temp_home = tempdir().expect("Failed to create temp directory");
-        env::set_var("HOME", &temp_home.path());
-
-        let config_path = get_config_path(CONFIG_DIR, CONFIG_FILE);
-
-        let expected_path = temp_home.path().join(CONFIG_DIR).join(CONFIG_FILE);
-        assert_eq!(expected_path, config_path);
-    }
 }

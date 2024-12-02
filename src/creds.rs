@@ -1,10 +1,10 @@
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::{env, fs, io};
+use std::{env, io};
 
 use crate::api::{self, Api};
 
@@ -17,55 +17,76 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    /// Serializes and saves the current credentials to the specified config file.
-    ///
-    /// Creates the parent directory if it doesn't exist and writes the credentials as JSON to
-    /// the file. Returns an error if serialization or file operations fail.
-    fn save(&self, config_path: &Path) -> Result<(), Box<dyn Error>> {
-        let serialized = serde_json::to_string(self)?;
-
-        // Ensure the parent directory exists
-        if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)?;
-        } else {
-            return Err("Failed to get parent directory".into());
+    fn save_to_keyring(&self, service: &str) -> Result<(), Box<dyn Error>> {
+        if let Some(username) = &self.username {
+            let entry = Entry::new(service, "username")?;
+            entry.set_password(username)?;
         }
 
-        fs::write(config_path, serialized)?;
+        if let Some(password) = &self.password {
+            let entry = Entry::new(service, "password")?;
+            entry.set_password(password)?;
+        }
+
+        if let Some(token) = &self.access_token {
+            let entry = Entry::new(service, "access_token")?;
+            entry.set_password(token)?;
+        }
+        Ok(())
+    }
+
+    fn load_from_keyring(service: &str) -> Result<Self, Box<dyn Error>> {
+        let mut credentials = Self::default();
+
+        if let Ok(entry) = Entry::new(service, "username") {
+            credentials.username = entry.get_password().ok();
+        }
+
+        if let Ok(entry) = Entry::new(service, "password") {
+            credentials.password = entry.get_password().ok();
+        }
+
+        if let Ok(entry) = Entry::new(service, "access_token") {
+            credentials.access_token = entry.get_password().ok();
+        }
+
+        Ok(credentials)
+    }
+
+    fn delete_from_keyring(service: &str) -> Result<(), Box<dyn Error>> {
+        if let Ok(entry) = Entry::new(service, "username") {
+            let _ = entry.delete_credential();
+        }
+
+        if let Ok(entry) = Entry::new(service, "password") {
+            let _ = entry.delete_credential();
+        }
+
+        if let Ok(entry) = Entry::new(service, "access_token") {
+            let _ = entry.delete_credential();
+        }
 
         Ok(())
     }
 
-    /// Load credentials from a file, returning `None` if the file is missing or invalid.
-    fn load(config_path: &Path) -> Option<Self> {
-        match fs::read_to_string(config_path) {
-            Ok(data) => serde_json::from_str(&data).ok(),
-            Err(_) => None,
-        }
-    }
-
-    /// Checks if all fields in the credentials are empty (i.e., None).
     fn is_empty(&self) -> bool {
         self.username.is_none() && self.password.is_none() && self.access_token.is_none()
     }
 }
 
 pub struct CredentialManager {
-    config_path: PathBuf,
     api: Api,
 }
 
 impl CredentialManager {
-    pub fn new(config_path: PathBuf) -> Self {
-        Self {
-            config_path,
-            api: Api::new(),
-        }
+    const SERVICE_NAME: &'static str = "tuenroll";
+
+    pub fn new() -> Self {
+        Self { api: Api::new() }
     }
 
     pub fn delete_credentials(&self) {
-        let creds = Credentials::default();
-        let _ = creds.save(&self.config_path);
+        let _ = Credentials::delete_from_keyring(Self::SERVICE_NAME);
     }
 
     pub fn has_credentials(&self) -> bool {
@@ -106,7 +127,8 @@ impl CredentialManager {
     /// If the access token is missing or invalid, it fetches a new one and updates the config.
     // TODO: Test
     pub async fn get_valid_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
-        let mut credentials = Credentials::load(&self.config_path).unwrap_or_default();
+        let mut credentials =
+            Credentials::load_from_keyring(Self::SERVICE_NAME).unwrap_or_default();
 
         loop {
             if credentials.is_empty() {
@@ -164,7 +186,7 @@ impl CredentialManager {
             let result = self.api.get_access_token(username, password).await;
             return if let Ok(token) = result {
                 credentials.access_token = Some(token);
-                let _ = credentials.save(&self.config_path);
+                let _ = credentials.save_to_keyring(Self::SERVICE_NAME);
                 Ok(())
             } else {
                 match result {
@@ -206,112 +228,149 @@ impl CredentialManager {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use crate::CONFIG_FILE;
-
     use super::*;
-    use fs::{metadata, File};
-    use tempfile::tempdir;
+    use keyring::Entry;
+    use uuid::Uuid;
 
-    #[test]
-    fn test_save_credentials_success() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_path = temp_dir.path().join(CONFIG_FILE);
+    fn generate_unique_service() -> String {
+        format!("test_service_{}", Uuid::new_v4())
+    }
 
-        let credentials = Credentials {
+    fn setup_test_credentials() -> Credentials {
+        Credentials {
             username: Some("test_user".to_string()),
             password: Some("test_password".to_string()),
             access_token: Some("test_token".to_string()),
-        };
-
-        let result = credentials.save(&config_path);
-        assert!(result.is_ok());
-
-        // Check if the file exists
-        assert!(metadata(&config_path).is_ok());
-
-        // Check if saved file includes the credentials
-        let saved = fs::read_to_string(config_path).expect("Failed to read config file");
-        assert!(saved.contains("test_user"));
-        assert!(saved.contains("test_password"));
-        assert!(saved.contains("test_token"));
+        }
     }
 
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn test_save_credentials_invalid_path() {
-        let invalid_path = Path::new("/invalid/directory/path/test_config.json");
-
-        let credentials = Credentials {
-            username: Some("test_user".to_string()),
-            password: Some("test_password".to_string()),
-            access_token: Some("test_token".to_string()),
-        };
-
-        let result = credentials.save(&invalid_path);
-        assert!(result.is_err());
+    fn save_test_credentials(service: &str, credentials: &Credentials) {
+        credentials
+            .save_to_keyring(service)
+            .expect("Failed to save test credentials");
     }
 
-    #[test]
-    fn test_save_empty_credentials() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_path = temp_dir.path().join(CONFIG_FILE);
-
-        let empty_credentials = Credentials::default();
-
-        let result = empty_credentials.save(&config_path);
-        assert!(result.is_ok());
-
-        // Check if the file exists
-        assert!(metadata(&config_path).is_ok());
-
-        // Check if saved file includes the credentials
-        let saved = fs::read_to_string(config_path).expect("Failed to read config file");
-        assert!(saved.contains("null"));
+    fn verify_credentials_absence(service: &str) {
+        assert!(Entry::new(service, "username")
+            .unwrap()
+            .get_password()
+            .is_err());
+        assert!(Entry::new(service, "password")
+            .unwrap()
+            .get_password()
+            .is_err());
+        assert!(Entry::new(service, "access_token")
+            .unwrap()
+            .get_password()
+            .is_err());
     }
 
+    fn cleanup_service(service: &str) {
+        let _ = Credentials::delete_from_keyring(service);
+    }
+
+    #[cfg(target_os = "windows")]
     #[test]
-    fn test_load_credentials_success() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_path = temp_dir.path().join(CONFIG_FILE);
+    fn test_save_to_keyring_success() {
+        let test_service = generate_unique_service();
+        let credentials = setup_test_credentials();
 
-        let credentials = Credentials {
-            username: Some("test_user".to_string()),
-            password: Some("test_password".to_string()),
-            access_token: Some("test_token".to_string()),
-        };
+        save_test_credentials(&test_service, &credentials);
 
-        // Serialize the credentials and write them to the file
-        let serialized =
-            serde_json::to_string(&credentials).expect("Failed to serialize credentials");
-        let mut file = File::create(&config_path).expect("Failed to create file");
-        file.write_all(serialized.as_bytes())
-            .expect("Failed to write to file");
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
-        let loaded_credentials = Credentials::load(&config_path);
+        // Verify credentials were saved
+        assert_eq!(
+            Entry::new(&test_service, "username")
+                .unwrap()
+                .get_password()
+                .unwrap(),
+            "test_user"
+        );
+        assert_eq!(
+            Entry::new(&test_service, "password")
+                .unwrap()
+                .get_password()
+                .unwrap(),
+            "test_password"
+        );
+        assert_eq!(
+            Entry::new(&test_service, "access_token")
+                .unwrap()
+                .get_password()
+                .unwrap(),
+            "test_token"
+        );
 
-        assert!(loaded_credentials.is_some());
-        let loaded_credentials = loaded_credentials.unwrap();
+        cleanup_service(&test_service);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_load_credentials_from_keyring_success() {
+        let test_service = generate_unique_service();
+        let credentials = setup_test_credentials();
+
+        save_test_credentials(&test_service, &credentials);
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Load credentials from the keyring
+        let loaded_credentials = Credentials::load_from_keyring(&test_service).unwrap();
         assert_eq!(loaded_credentials.username, credentials.username);
         assert_eq!(loaded_credentials.password, credentials.password);
         assert_eq!(loaded_credentials.access_token, credentials.access_token);
+
+        cleanup_service(&test_service);
     }
 
     #[test]
-    fn test_load_credentials_missing_file() {
-        let invalid_path = Path::new("non_existent_config.json");
+    fn test_load_credentials_from_keyring_missing() {
+        let test_service = generate_unique_service();
+        cleanup_service(&test_service);
 
-        let loaded_credentials = Credentials::load(invalid_path);
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
-        // Assert that loading fails (returns None)
-        assert!(loaded_credentials.is_none());
+        let loaded_credentials = Credentials::load_from_keyring(&test_service).unwrap();
+
+        assert!(loaded_credentials.username.is_none());
+        assert!(loaded_credentials.password.is_none());
+        assert!(loaded_credentials.access_token.is_none());
+    }
+
+    #[test]
+    fn test_save_empty_credentials_to_keyring() {
+        let test_service = generate_unique_service();
+        let empty_credentials = Credentials::default();
+
+        save_test_credentials(&test_service, &empty_credentials);
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        verify_credentials_absence(&test_service);
+
+        cleanup_service(&test_service);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_delete_credentials_from_keyring() {
+        let test_service = generate_unique_service();
+        let credentials = setup_test_credentials();
+
+        save_test_credentials(&test_service, &credentials);
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Delete credentials
+        cleanup_service(&test_service);
+
+        verify_credentials_absence(&test_service);
     }
 
     #[test]
     fn test_is_empty_all_none() {
         let credentials = Credentials::default();
-
         assert!(credentials.is_empty());
     }
 
@@ -322,43 +381,13 @@ mod tests {
             password: Some("test_password".to_string()),
             access_token: None,
         };
-
         assert!(!credentials.is_empty());
     }
 
     #[test]
     fn test_is_empty_all_some() {
-        let credentials = Credentials {
-            username: Some("test_user".to_string()),
-            password: Some("test_password".to_string()),
-            access_token: Some("test_token".to_string()),
-        };
-
+        let credentials = setup_test_credentials();
         assert!(!credentials.is_empty());
-    }
-
-    #[test]
-    fn test_delete_credentials() {
-        let temp_dir = tempdir().expect("Failed to create temp directory");
-        let config_path = temp_dir.path().join(CONFIG_FILE);
-
-        let credentials = Credentials {
-            username: Some("test_user".to_string()),
-            password: Some("test_password".to_string()),
-            access_token: Some("test_token".to_string()),
-        };
-
-        let _ = credentials.save(&config_path);
-
-        let manager = CredentialManager::new(config_path.clone());
-        manager.delete_credentials();
-
-        let loaded_credentials = Credentials::load(&config_path);
-        assert!(loaded_credentials.is_some());
-
-        // Check if all fields are `None`
-        let loaded_credentials = loaded_credentials.unwrap();
-        assert!(loaded_credentials.is_empty());
     }
 
     // TODO: Use mocked API
@@ -407,8 +436,7 @@ mod tests {
             access_token: Some("expired_token".to_string()),
         };
 
-        let manager =
-            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager = CredentialManager::new();
 
         let url = format!("{}/test", server.url());
         let result = manager.validate_stored_token(&mut credentials, &url).await;
@@ -423,8 +451,7 @@ mod tests {
             access_token: None,
         };
 
-        let manager =
-            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager = CredentialManager::new();
         let result = manager.validate_stored_token(&mut credentials, "").await;
         assert!(!result.unwrap());
     }
@@ -467,8 +494,7 @@ mod tests {
     async fn test_retrieve_new_access_token_missing_creds() {
         let mut credentials = Credentials::default();
 
-        let manager =
-            CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager = CredentialManager::new();
 
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
