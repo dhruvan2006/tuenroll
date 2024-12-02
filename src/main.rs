@@ -73,6 +73,17 @@ const LOG_FILE: &str = "tuenroll.log";
 async fn main() {
     set_up_logging();
 
+    // Check if it's the first setup
+    if is_first_setup() {
+        display_logo();
+
+        println!("{}", "Welcome to TUEnroll CLI!".bright_cyan());
+        println!(
+            "{}",
+            "Automate your TU Delft exam registrations. Let's get you set up!".bright_cyan()
+        );
+    }
+
     let cli = Cli::parse();
 
     let manager = CredentialManager::new(get_config_path(CONFIG_DIR, CONFIG_FILE));
@@ -205,6 +216,16 @@ async fn main() {
     }
 }
 
+fn is_first_setup() -> bool {
+    let config_dir = get_config_path(CONFIG_DIR, CONFIG_FILE);
+    let config_path = std::path::Path::new(&config_dir);
+
+    if !config_path.exists() {
+        return true; // First setup
+    }
+    false // Not the first setup
+}
+
 fn set_up_logging() {
     let log_path = get_config_path(CONFIG_DIR, LOG_FILE);
     if let Some(parent) = log_path.parent() {
@@ -291,6 +312,24 @@ fn time_ago(last_check_time: chrono::DateTime<chrono::FixedOffset>) -> String {
     } else {
         return format!("{} years ago", duration.num_days() / 365);
     }
+}
+
+fn display_logo() {
+    println!(
+        "{}",
+        r"
+ ________  __    __  ________                                __  __ 
+|        \|  \  |  \|        \                              |  \|  \
+ \$$$$$$$$| $$  | $$| $$$$$$$$ _______    ______    ______  | $$| $$
+   | $$   | $$  | $$| $$__    |       \  /      \  /      \ | $$| $$
+   | $$   | $$  | $$| $$  \   | $$$$$$$\|  $$$$$$\|  $$$$$$\| $$| $$
+   | $$   | $$  | $$| $$$$$   | $$  | $$| $$   \$$| $$  | $$| $$| $$
+   | $$   | $$__/ $$| $$_____ | $$  | $$| $$      | $$__/ $$| $$| $$
+   | $$    \$$    $$| $$     \| $$  | $$| $$       \$$    $$| $$| $$
+    \$$     \$$$$$$  \$$$$$$$$ \$$   \$$ \$$        \$$$$$$  \$$ \$$
+    "
+        .bright_green()
+    );
 }
 
 async fn run_loop(interval: &u32, credentials: Credentials) {
