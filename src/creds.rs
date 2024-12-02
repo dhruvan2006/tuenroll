@@ -68,6 +68,12 @@ impl CredentialManager {
         let _ = creds.save(&self.config_path);
     }
 
+    pub fn has_credentials(&self) -> bool {
+        Credentials::load(&self.config_path)
+            .map(|creds| !creds.is_empty())
+            .unwrap_or(false)
+    }
+
     /// Prompt the user for credentials.
     // TODO: Test
     fn prompt_for_credentials(&self) -> Credentials {
@@ -468,5 +474,59 @@ mod tests {
 
         assert!(result.is_err());
         assert!(credentials.is_empty());
+    }
+
+    #[test]
+    fn test_has_credentials_with_non_empty_file() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("credentials.json");
+
+        let credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_pass".to_string()),
+            access_token: Some("token123".to_string()),
+        };
+
+        credentials.save(&config_path).unwrap();
+
+        let credential_manager = CredentialManager {
+            config_path: config_path.clone(),
+            api: Api::new(),
+        };
+
+        // Test if has_credentials returns true
+        assert!(credential_manager.has_credentials());
+    }
+
+    #[test]
+    fn test_has_credentials_with_empty_file() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("credentials.json");
+
+        let credentials = Credentials::default();
+
+        credentials.save(&config_path).unwrap();
+
+        let credential_manager = CredentialManager {
+            config_path: config_path.clone(),
+            api: Api::new(),
+        };
+
+        // Test if has_credentials returns false
+        assert!(!credential_manager.has_credentials());
+    }
+
+    #[test]
+    fn test_has_credentials_with_missing_file() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("non_existent_credentials.json");
+
+        let credential_manager = CredentialManager {
+            config_path: config_path.clone(),
+            api: Api::new(),
+        };
+
+        // Test if has_credentials returns false when the file is missing
+        assert!(!credential_manager.has_credentials());
     }
 }
