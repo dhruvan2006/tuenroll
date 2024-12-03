@@ -70,8 +70,6 @@ const LOG_FILE: &str = "tuenroll.log";
 #[allow(clippy::zombie_processes)]
 #[tokio::main]
 async fn main() {
-    set_up_logging();
-
     // Check if it's the first setup
     if is_first_setup() {
         display_logo();
@@ -82,6 +80,8 @@ async fn main() {
             "Automate your TU Delft exam registrations. Let's get you set up!".bright_cyan()
         );
     }
+
+    set_up_logging();
 
     let cli = Cli::parse();
 
@@ -163,7 +163,7 @@ async fn main() {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status = if manager.has_credentials() {
+            let credentials_status = if manager.has_credentials(CredentialManager::SERVICE_NAME) {
                 "Credentials are saved.".to_string().green()
             } else {
                 "No credentials saved.".to_string().red()
@@ -216,8 +216,9 @@ async fn main() {
 }
 
 fn is_first_setup() -> bool {
-    let config_dir = get_config_path(CONFIG_DIR, CONFIG_FILE);
-    let config_path = std::path::Path::new(&config_dir);
+    let config_path = dirs::home_dir()
+        .expect("Unable to find home directory")
+        .join(CONFIG_DIR);
 
     if !config_path.exists() {
         return true; // First setup

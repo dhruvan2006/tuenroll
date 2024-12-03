@@ -79,7 +79,7 @@ pub struct CredentialManager {
 }
 
 impl CredentialManager {
-    const SERVICE_NAME: &'static str = "tuenroll";
+    pub const SERVICE_NAME: &'static str = "tuenroll";
 
     pub fn new() -> Self {
         Self { api: Api::new() }
@@ -89,8 +89,8 @@ impl CredentialManager {
         let _ = Credentials::delete_from_keyring(Self::SERVICE_NAME);
     }
 
-    pub fn has_credentials(&self) -> bool {
-        Credentials::load(&self.config_path)
+    pub fn has_credentials(&self, service: &str) -> bool {
+        Credentials::load_from_keyring(service)
             .map(|creds| !creds.is_empty())
             .unwrap_or(false)
     }
@@ -391,34 +391,33 @@ mod tests {
     }
 
     // TODO: Use mocked API
-    // #[tokio::test]
-    // async fn test_validate_stored_token_with_valid_token() {
-    //     let mut server = mockito::Server::new_async().await;
-    //     let _mock = server
-    //         .mock("GET", "/test")
-    //         .with_status(200)
-    //         .with_header("Authorization", "Bearer valid_token")
-    //         .with_body(
-    //             serde_json::json!({
-    //                 "random": "json test body"
-    //             })
-    //             .to_string(),
-    //         )
-    //         .create();
-    //
-    //     let mut credentials = Credentials {
-    //         username: Some("test_user".to_string()),
-    //         password: Some("test_password".to_string()),
-    //         access_token: Some("valid_token".to_string()),
-    //     };
-    //
-    //     let manager =
-    //         CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
-    //
-    //     let url = format!("{}/test", server.url());
-    //     let result = manager.validate_stored_token(&mut credentials, &url).await;
-    //     assert!(result.unwrap());
-    // }
+    #[tokio::test]
+    async fn test_validate_stored_token_with_valid_token() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/test")
+            .with_status(200)
+            .with_header("Authorization", "Bearer valid_token")
+            .with_body(
+                serde_json::json!({
+                    "random": "json test body"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: Some("valid_token".to_string()),
+        };
+
+        let manager = CredentialManager::new();
+
+        let url = format!("{}/test", server.url());
+        let result = manager.validate_stored_token(&mut credentials, &url).await;
+        assert!(result.unwrap());
+    }
 
     #[tokio::test]
     async fn test_validate_stored_token_with_expired_token() {
@@ -457,38 +456,34 @@ mod tests {
     }
 
     // TODO: Use mocked api
-    // #[tokio::test]
-    // async fn test_retrieve_new_access_token_invalid_url() {
-    //     let mut credentials = Credentials {
-    //         username: Some("valid_user".to_string()),
-    //         password: Some("valid_pass".to_string()),
-    //         ..Default::default()
-    //     };
+    #[tokio::test]
+    async fn test_retrieve_new_access_token_invalid_url() {
+        let mut credentials = Credentials {
+            username: Some("valid_user".to_string()),
+            password: Some("valid_pass".to_string()),
+            ..Default::default()
+        };
 
-    //     let manager =
-    //         CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
+        let manager = CredentialManager::new();
+        let result = manager.retrieve_new_access_token(&mut credentials).await;
 
-    //     let result = manager.retrieve_new_access_token(&mut credentials).await;
+        assert!(result.is_err());
+    }
 
-    //     assert!(result.is_err());
-    // }
+    #[tokio::test]
+    async fn test_retrieve_new_access_token_invalid_password() {
+        let mut credentials = Credentials {
+            username: Some("valid_user".to_string()),
+            password: Some("incorrect".to_string()),
+            ..Default::default()
+        };
 
-    // #[tokio::test]
-    // async fn test_retrieve_new_access_token_invalid_password() {
-    //     let mut credentials = Credentials {
-    //         username: Some("valid_user".to_string()),
-    //         password: Some("incorrect".to_string()),
-    //         ..Default::default()
-    //     };
+        let manager = CredentialManager::new();
+        let result = manager.retrieve_new_access_token(&mut credentials).await;
 
-    //     let manager =
-    //         CredentialManager::new(PathBuf::from_str("").expect("Failed to create PathBuf"));
-
-    //     let result = manager.retrieve_new_access_token(&mut credentials).await;
-
-    //     assert!(result.is_err());
-    //     assert!(credentials.access_token.is_none());
-    // }
+        assert!(result.is_err());
+        assert!(credentials.access_token.is_none());
+    }
 
     #[tokio::test]
     async fn test_retrieve_new_access_token_missing_creds() {
@@ -502,10 +497,12 @@ mod tests {
         assert!(credentials.is_empty());
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
-    fn test_has_credentials_with_non_empty_file() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("credentials.json");
+    fn test_has_credentials_non_empty_keyring() {
+        let service = generate_unique_service();
+        let credentials = setup_test_credentials();
+        save_test_credentials(&service, &credentials);
 
         let credentials = Credentials {
             username: Some("test_user".to_string()),
@@ -513,46 +510,37 @@ mod tests {
             access_token: Some("token123".to_string()),
         };
 
-        credentials.save(&config_path).unwrap();
+        let _ = credentials.save_to_keyring(&service);
 
-        let credential_manager = CredentialManager {
-            config_path: config_path.clone(),
-            api: Api::new(),
-        };
+        let credential_manager = CredentialManager::new();
 
         // Test if has_credentials returns true
-        assert!(credential_manager.has_credentials());
+        assert!(credential_manager.has_credentials(&service));
+
+        cleanup_service(&service);
     }
 
     #[test]
-    fn test_has_credentials_with_empty_file() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("credentials.json");
-
+    fn test_has_credentials_with_empty_credentials() {
+        let service = generate_unique_service();
         let credentials = Credentials::default();
+        save_test_credentials(&service, &credentials);
 
-        credentials.save(&config_path).unwrap();
-
-        let credential_manager = CredentialManager {
-            config_path: config_path.clone(),
-            api: Api::new(),
-        };
+        let credential_manager = CredentialManager::new();
 
         // Test if has_credentials returns false
-        assert!(!credential_manager.has_credentials());
+        assert!(!credential_manager.has_credentials(&service));
+
+        cleanup_service(&service);
     }
 
     #[test]
     fn test_has_credentials_with_missing_file() {
-        let dir = tempdir().unwrap();
-        let config_path = dir.path().join("non_existent_credentials.json");
+        let service = generate_unique_service();
 
-        let credential_manager = CredentialManager {
-            config_path: config_path.clone(),
-            api: Api::new(),
-        };
+        let credential_manager = CredentialManager::new();
 
         // Test if has_credentials returns false when the file is missing
-        assert!(!credential_manager.has_credentials());
+        assert!(!credential_manager.has_credentials(&service));
     }
 }
