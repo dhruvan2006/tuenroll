@@ -1,7 +1,6 @@
 mod api;
 mod creds;
 mod models;
-use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -20,6 +19,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
 use std::{process::Command, thread, time};
+use ::time::UtcOffset;
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -552,7 +552,7 @@ fn setup_run_on_boot(interval: &u32) {
     #[cfg(target_os = "windows")]
     let result = run_on_boot_windows(interval);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "windows"))]
     let result = run_on_boot_linux(interval);
 
     if result.is_ok() {
