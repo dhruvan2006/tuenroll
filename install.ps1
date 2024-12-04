@@ -51,24 +51,34 @@ Move-Item -Path $BinaryPath -Destination $ExistingFile -Force
 
 # Add install directory to user PATH if it's not already there
 $CurrentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if (-not ($CurrentPath -split ';' | ForEach-Object { $_ -eq $InstallDir }))
+if (-not ($CurrentPath -split ';' | Where-Object { $_ -eq $InstallDir }))
 {
     Write-Host "Adding $InstallDir to user PATH..."
     $NewPath = $CurrentPath + ";$InstallDir"
     [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
-
-    # Refresh current session's PATH
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
 }
 
-# Verify the installation by checking if the command works
+# Refresh the current session's PATH
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+        [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+# More robust verification
 Write-Host "Verifying installation..."
-if (Get-Command "$InstallDir\$BinaryName" -ErrorAction SilentlyContinue)
+try
 {
-    Write-Host "$BinaryName has been successfully installed and added to PATH!"
+    $process = Start-Process -FilePath "$InstallDir\$BinaryName" -ArgumentList "--version" -NoNewWindow -PassThru -Wait
+    if ($process.ExitCode -eq 0)
+    {
+        Write-Host "$BinaryName has been successfully installed and added to PATH!"
+    }
+    else
+    {
+        Write-Error "Installation verification failed with exit code $( $process.ExitCode )"
+        Exit 1
+    }
 }
-else
+catch
 {
-    Write-Error "Installation failed! $BinaryName not found in $InstallDir."
+    Write-Error "Failed to run $BinaryName. Error: $_"
     Exit 1
 }
