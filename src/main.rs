@@ -1,6 +1,7 @@
 mod api;
 mod creds;
 mod models;
+use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
 use colored::*;
@@ -10,16 +11,15 @@ use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use simplelog::*;
 use std::env;
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "windows"))]
 use std::io;
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "windows"))]
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
 use std::{process::Command, thread, time};
-use ::time::UtcOffset;
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -589,7 +589,7 @@ fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "windows"))]
 fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
     let exe_path = env::current_exe()?;
     let exe_path = exe_path.to_string_lossy();
