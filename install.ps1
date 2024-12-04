@@ -58,9 +58,10 @@ if (-not ($CurrentPath -split ';' | Where-Object { $_ -eq $InstallDir }))
     [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
 }
 
-# Refresh the current session's PATH
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-        [System.Environment]::GetEnvironmentVariable("Path", "User")
+# Add InstallDir to the PATH
+$env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+        [Environment]::GetEnvironmentVariable("Path", "User") +
+        ";$InstallDir"
 
 # More robust verification
 Write-Host "Verifying installation..."
