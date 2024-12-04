@@ -1,8 +1,12 @@
 name: Rust Release
 
+permissions:
+  contents: write
+
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*.*.*"
 
 env:
   CARGO_TERM_COLOR: always
