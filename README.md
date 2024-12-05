@@ -48,20 +48,20 @@ powershell -c "irm https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/i
 
 ```bash
 sudo apt install libdbus-1-dev pkg-config
-curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.sh | sh
 ```
 
 #### Fedora:
 
 ```bash
 sudo dnf install dbus-devel pkgconf-pkg-config
-curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.sh | sh
 ```
 
 #### Mac
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.sh | sh
 ```
 
 ### Build from source
