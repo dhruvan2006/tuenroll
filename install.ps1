@@ -92,4 +92,4 @@ catch
 }
 
 # Inform user about terminal reinstallation
-Write-Host "!!! IMPORTANT: Please reinstall your terminal !!!" -ForegroundColor Magenta
+Write-Host "!!! IMPORTANT: Please restart your terminal session !!!" -ForegroundColor Magenta
