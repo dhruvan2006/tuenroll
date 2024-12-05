@@ -156,8 +156,8 @@ async fn main() {
         }
         Commands::Status => {
             info!("Fetching the current status.");
-            let pid = get_stored_pid();
-            let process_status = if let Some(pid) = pid {
+            let process_status = if let Some(Some(pid)) = process_is_running().then(get_stored_pid)
+            {
                 format!("Running (PID: {}).", pid).green()
             } else {
                 "Not running.".to_string().red()
