@@ -92,19 +92,23 @@ async fn main() {
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            let credentials = get_credentials(&manager, false).await;
-            match run_auto_sign_up(false, &credentials).await {
+            let _ = get_credentials(&manager, false).await;
+            match run_auto_sign_up(false, &manager).await {
                 Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
-                Err(()) => println!("{}", "Failure: A network error occured".red().bold()),
+                Err(err) if err == "Invalid credentials" => {
+                    // Invalid credentials should definitely never happen
+                    println!("Invalid credentials detected")
+                }
+                Err(_) => println!("{}", "Failure: A network error occured".red().bold()),
             }
         }
         Commands::Start { interval, boot } => {
             info!("Starting the 'Start' command execution.");
 
-            let credentials = get_credentials(&manager, true).await;
-
-            // WARNING: Do not have any print statements or the the command and process will stop working detached
+            // WARNING: Do not have any print statements or the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
+                let _ = get_credentials(&manager, true).await;
+
                 // Checks whether a process was running, if not don't run the program
                 if *boot && get_stored_pid().is_none() {
                     info!("Boot is enabled but no process was running. Stopping execution");
@@ -139,7 +143,7 @@ async fn main() {
                 return;
             } else {
                 info!("Daemon process enabled: starting loop");
-                run_loop(interval, credentials).await;
+                run_loop(interval, &manager).await;
             }
         }
         Commands::Stop => {
@@ -190,10 +194,8 @@ async fn main() {
         }
         Commands::Change => {
             info!("Changing credentials.");
-            match manager.change_credentials().await {
-                Ok(_) => println!("{}", "Success: Credentials changed!".green().bold()),
-                Err(_) => println!("{}", "Failed: A network problem occured.".red().bold()),
-            }
+            manager.delete_credentials();
+            let _ = get_credentials(&manager, true).await;
         }
         Commands::Delete => {
             info!("Deleting credentials.");
@@ -334,8 +336,8 @@ fn display_logo() {
     );
 }
 
-async fn run_loop(interval: &u32, credentials: Credentials) {
-    let _ = run_auto_sign_up(true, &credentials).await;
+async fn run_loop<T: ApiTrait>(interval: &u32, manager: &CredentialManager<T>) {
+    let _ = run_auto_sign_up(true, manager).await;
 
     let mut start_time = std::time::SystemTime::now();
     loop {
@@ -347,7 +349,17 @@ async fn run_loop(interval: &u32, credentials: Credentials) {
             >= (interval * 3600).into()
         {
             info!("Running auto sign up");
-            let _ = run_auto_sign_up(true, &credentials).await;
+            match run_auto_sign_up(true, manager).await {
+                Ok(_) => info!("Auto sign-up successful."),
+                Err(err) if err == "Invalid credentials" => {
+                    error!("Invalid credentials detected.");
+                    show_notification("Your credentials are invalid. Run tuenroll start again");
+                    break; // !!! Stops the background process !!!
+                }
+                Err(_) => {
+                    error!("Failure: A network error occurred");
+                }
+            }
             start_time = std::time::SystemTime::now();
         }
         thread::sleep(time::Duration::from_secs(3600));
@@ -452,6 +464,7 @@ async fn get_credentials<T: ApiTrait>(
         let request = manager.get_valid_credentials(
             Credentials::load_from_keyring,
             CredentialManager::<T>::prompt_for_credentials,
+            true,
         );
         if let Some(data) = handle_request(is_loop, request.await) {
             credentials = data;
@@ -463,12 +476,35 @@ async fn get_credentials<T: ApiTrait>(
     credentials
 }
 
-/// Runs the auto signup fully o nce
+/// Runs the auto signup fully once
 /// Gets the credentials, the access token
 /// Automatically signs up for all the tests
 /// Prints the result of execution
-async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<(), ()> {
-    info!("Fetching credentials from config file.");
+async fn run_auto_sign_up<T: ApiTrait>(
+    is_loop: bool,
+    manager: &CredentialManager<T>,
+) -> Result<(), String> {
+    // Creds don't exist
+    let credentials = manager
+        .get_valid_credentials(
+            Credentials::load_from_keyring,
+            Credentials::default,
+            !is_loop,
+        )
+        .await;
+    if credentials.is_err() {
+        return Err("Invalid credentials".to_string());
+    }
+    let credentials = credentials.unwrap();
+
+    // Check if creds are valid
+    if !manager
+        .validate_stored_token(&credentials, api::REGISTERED_COURSE_URL)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("Invalid credentials".to_string());
+    }
 
     let access_token = credentials
         .access_token
@@ -502,7 +538,10 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
         );
         // Send desktop notification
         for course_name in course_korte_naam_result {
-            show_notification(&course_name);
+            show_notification(&format!(
+                "You have been successfully registered for the exam: {}",
+                course_name
+            ));
         }
     }
 
@@ -512,16 +551,16 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
     Ok(())
 }
 
-fn show_notification(course_name: &str) {
-    Notification::new()
-        .summary("Exam Registration Success")
-        .body(&format!(
-            "You have been successfully registered for the exam: {}",
-            course_name
-        ))
+fn show_notification(body: &str) {
+    if let Err(e) = Notification::new()
+        .summary("TUEnroll")
+        .body(body)
         .icon("info")
+        .timeout(10)
         .show()
-        .unwrap();
+    {
+        error!("Failed to show notification: {}", e);
+    }
 }
 
 fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
