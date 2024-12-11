@@ -1,5 +1,6 @@
 use crate::models::{CourseList, TestList};
 use async_trait::async_trait;
+use mockall::automock;
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -14,6 +15,7 @@ pub const TEST_COURSE_URL: &str =
 pub const TEST_REGISTRATION_URL: &str =
     "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
 
+#[automock]
 #[async_trait]
 pub trait ApiTrait {
     async fn is_user_authenticated(

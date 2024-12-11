@@ -21,6 +21,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
 use std::{process::Command, thread, time};
+use std::process::exit;
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -86,7 +87,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new(Api::new());
+    let manager = CredentialManager::new(Api::new(), APP_NAME.to_string());
 
     match &cli.command {
         Commands::Run => {
@@ -164,12 +165,11 @@ async fn main() {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status =
-                if manager.has_credentials(CredentialManager::<Api>::SERVICE_NAME) {
-                    "Credentials are saved.".to_string().green()
-                } else {
-                    "No credentials saved.".to_string().red()
-                };
+            let credentials_status = if manager.has_credentials() {
+                "Credentials are saved.".to_string().green()
+            } else {
+                "No credentials saved.".to_string().red()
+            };
 
             let network_status = match check_network_status().await {
                 Ok(status) => status.green(),
@@ -449,7 +449,10 @@ async fn get_credentials<T: ApiTrait>(
     let credentials;
 
     loop {
-        let request = manager.get_valid_credentials();
+        let request = manager.get_valid_credentials(
+            Credentials::load_from_keyring,
+            CredentialManager::<T>::prompt_for_credentials,
+        );
         if let Some(data) = handle_request(is_loop, request.await) {
             credentials = data;
             break;
@@ -522,14 +525,21 @@ fn show_notification(course_name: &str) {
 
 fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
     match request {
-        Ok(data) => Some(data),
+        Ok(data) => {
+            println!("{}", "Credentials validated successfully!".green().bold());
+            Some(data)
+        },
         Err(e) => {
             if !is_loop {
-                panic!("{}", "A network error likely occured".red().bold());
+                eprintln!("{}", e.to_string().red().bold());
+                exit(0);  // Exit if `run` and no internet connection
             }
+
             // Logs the error and wait 5 seconds before continuing
             error!("{}", e.to_string());
-            thread::sleep(time::Duration::from_secs(5));
+            if e.to_string() != "Invalid credentials" {
+                thread::sleep(time::Duration::from_secs(5));
+            }
             None
         }
     }
