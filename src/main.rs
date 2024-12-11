@@ -1,6 +1,7 @@
 mod api;
 mod creds;
 mod models;
+use crate::api::ApiTrait;
 use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
@@ -85,7 +86,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new();
+    let manager = CredentialManager::new(Api::new());
 
     match &cli.command {
         Commands::Run => {
@@ -163,11 +164,12 @@ async fn main() {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status = if manager.has_credentials(CredentialManager::SERVICE_NAME) {
-                "Credentials are saved.".to_string().green()
-            } else {
-                "No credentials saved.".to_string().red()
-            };
+            let credentials_status =
+                if manager.has_credentials(CredentialManager::<Api>::SERVICE_NAME) {
+                    "Credentials are saved.".to_string().green()
+                } else {
+                    "No credentials saved.".to_string().red()
+                };
 
             let network_status = match check_network_status().await {
                 Ok(status) => status.green(),
@@ -440,7 +442,10 @@ fn process_is_running() -> bool {
     }
 }
 
-async fn get_credentials(manager: &CredentialManager, is_loop: bool) -> Credentials {
+async fn get_credentials<T: ApiTrait>(
+    manager: &CredentialManager<T>,
+    is_loop: bool,
+) -> Credentials {
     let credentials;
 
     loop {
@@ -466,7 +471,7 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
         .clone()
         .expect("Access token should be present");
     let registration_result;
-    let api = Api::new();
+    let api: Box<dyn ApiTrait> = Box::new(Api::new());
     loop {
         let request = api.register_for_tests(
             &access_token,

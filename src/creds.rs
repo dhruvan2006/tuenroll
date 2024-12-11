@@ -6,7 +6,7 @@ use std::error::Error;
 use std::io::Write;
 use std::{env, io};
 
-use crate::api::{self, Api};
+use crate::api::{self, ApiTrait};
 
 /// Represents user credentials, including username, password, and access token.
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -74,15 +74,15 @@ impl Credentials {
     }
 }
 
-pub struct CredentialManager {
-    api: Api,
+pub struct CredentialManager<T: ApiTrait> {
+    api: T,
 }
 
-impl CredentialManager {
+impl<T: ApiTrait> CredentialManager<T> {
     pub const SERVICE_NAME: &'static str = "tuenroll";
 
-    pub fn new() -> Self {
-        Self { api: Api::new() }
+    pub fn new(api: T) -> Self {
+        Self { api }
     }
 
     pub fn delete_credentials(&self) {
@@ -229,6 +229,7 @@ impl CredentialManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api::Api;
     use keyring::Entry;
     use uuid::Uuid;
 
@@ -412,7 +413,7 @@ mod tests {
             access_token: Some("valid_token".to_string()),
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(Api::new());
 
         let url = format!("{}/test", server.url());
         let result = manager.validate_stored_token(&mut credentials, &url).await;
@@ -435,7 +436,7 @@ mod tests {
             access_token: Some("expired_token".to_string()),
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(Api::new());
 
         let url = format!("{}/test", server.url());
         let result = manager.validate_stored_token(&mut credentials, &url).await;
@@ -450,7 +451,7 @@ mod tests {
             access_token: None,
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(Api::new());
         let result = manager.validate_stored_token(&mut credentials, "").await;
         assert!(!result.unwrap());
     }
@@ -464,7 +465,7 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(Api::new());
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_err());
@@ -478,7 +479,7 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(Api::new());
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_err());
@@ -489,7 +490,7 @@ mod tests {
     async fn test_retrieve_new_access_token_missing_creds() {
         let mut credentials = Credentials::default();
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(Api::new());
 
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
@@ -512,7 +513,7 @@ mod tests {
 
         let _ = credentials.save_to_keyring(&service);
 
-        let credential_manager = CredentialManager::new();
+        let credential_manager = CredentialManager::new(Api::new());
 
         // Test if has_credentials returns true
         assert!(credential_manager.has_credentials(&service));
@@ -526,7 +527,7 @@ mod tests {
         let credentials = Credentials::default();
         save_test_credentials(&service, &credentials);
 
-        let credential_manager = CredentialManager::new();
+        let credential_manager = CredentialManager::new(Api::new());
 
         // Test if has_credentials returns false
         assert!(!credential_manager.has_credentials(&service));
@@ -538,7 +539,7 @@ mod tests {
     fn test_has_credentials_with_missing_file() {
         let service = generate_unique_service();
 
-        let credential_manager = CredentialManager::new();
+        let credential_manager = CredentialManager::new(Api::new());
 
         // Test if has_credentials returns false when the file is missing
         assert!(!credential_manager.has_credentials(&service));
