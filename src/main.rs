@@ -18,10 +18,10 @@ use std::io;
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::exit;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
 use std::{process::Command, thread, time};
-use std::process::exit;
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -455,6 +455,7 @@ async fn get_credentials<T: ApiTrait>(
         );
         if let Some(data) = handle_request(is_loop, request.await) {
             credentials = data;
+            println!("{}", "Credentials validated successfully!".green().bold());
             break;
         }
     }
@@ -525,18 +526,16 @@ fn show_notification(course_name: &str) {
 
 fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
     match request {
-        Ok(data) => {
-            println!("{}", "Credentials validated successfully!".green().bold());
-            Some(data)
-        },
+        Ok(data) => Some(data),
         Err(e) => {
+            // Logs the error and wait 5 seconds before continuing
+            eprintln!("{}", e.to_string().red().bold());
+            error!("{}", e.to_string());
+
             if !is_loop {
-                eprintln!("{}", e.to_string().red().bold());
-                exit(0);  // Exit if `run` and no internet connection
+                exit(0); // Exit if `run` and no internet connection
             }
 
-            // Logs the error and wait 5 seconds before continuing
-            error!("{}", e.to_string());
             if e.to_string() != "Invalid credentials" {
                 thread::sleep(time::Duration::from_secs(5));
             }
