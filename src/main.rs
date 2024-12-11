@@ -532,11 +532,10 @@ fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Optio
             eprintln!("{}", e.to_string().red().bold());
             error!("{}", e.to_string());
 
-            if !is_loop {
-                exit(0); // Exit if `run` and no internet connection
-            }
-
             if e.to_string() != "Invalid credentials" {
+                if !is_loop {
+                    exit(0); // Exit if `run` and no internet connection
+                }
                 thread::sleep(time::Duration::from_secs(5));
             }
             None
