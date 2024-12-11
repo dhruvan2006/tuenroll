@@ -23,3 +23,5 @@ time = { version = "0.3.0-alpha-2" }
 chrono = "0.4.38"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 uuid = { version = "1.11.0", features = ["v4", "fast-rng", "macro-diagnostics"] }
+async-trait = "0.1.83"
+mockall = "0.13.1"

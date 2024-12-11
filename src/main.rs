@@ -1,6 +1,7 @@
 mod api;
 mod creds;
 mod models;
+use crate::api::ApiTrait;
 use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
@@ -17,6 +18,7 @@ use std::io;
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::exit;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
 use std::{process::Command, thread, time};
@@ -85,7 +87,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new();
+    let manager = CredentialManager::new(Api::new(), APP_NAME.to_string());
 
     match &cli.command {
         Commands::Run => {
@@ -163,7 +165,7 @@ async fn main() {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status = if manager.has_credentials(CredentialManager::SERVICE_NAME) {
+            let credentials_status = if manager.has_credentials() {
                 "Credentials are saved.".to_string().green()
             } else {
                 "No credentials saved.".to_string().red()
@@ -440,13 +442,20 @@ fn process_is_running() -> bool {
     }
 }
 
-async fn get_credentials(manager: &CredentialManager, is_loop: bool) -> Credentials {
+async fn get_credentials<T: ApiTrait>(
+    manager: &CredentialManager<T>,
+    is_loop: bool,
+) -> Credentials {
     let credentials;
 
     loop {
-        let request = manager.get_valid_credentials();
+        let request = manager.get_valid_credentials(
+            Credentials::load_from_keyring,
+            CredentialManager::<T>::prompt_for_credentials,
+        );
         if let Some(data) = handle_request(is_loop, request.await) {
             credentials = data;
+            println!("{}", "Credentials validated successfully!".green().bold());
             break;
         }
     }
@@ -466,7 +475,7 @@ async fn run_auto_sign_up(is_loop: bool, credentials: &Credentials) -> Result<()
         .clone()
         .expect("Access token should be present");
     let registration_result;
-    let api = Api::new();
+    let api: Box<dyn ApiTrait> = Box::new(Api::new());
     loop {
         let request = api.register_for_tests(
             &access_token,
@@ -519,12 +528,16 @@ fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Optio
     match request {
         Ok(data) => Some(data),
         Err(e) => {
-            if !is_loop {
-                panic!("{}", "A network error likely occured".red().bold());
-            }
             // Logs the error and wait 5 seconds before continuing
+            eprintln!("{}", e.to_string().red().bold());
             error!("{}", e.to_string());
-            thread::sleep(time::Duration::from_secs(5));
+
+            if e.to_string() != "Invalid credentials" {
+                if !is_loop {
+                    exit(0); // Exit if `run` and no internet connection
+                }
+                thread::sleep(time::Duration::from_secs(5));
+            }
             None
         }
     }

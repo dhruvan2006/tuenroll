@@ -1,7 +1,10 @@
 use crate::models::{CourseList, TestList};
+use async_trait::async_trait;
+use mockall::automock;
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::error::Error;
 
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
@@ -12,14 +15,71 @@ pub const TEST_COURSE_URL: &str =
 pub const TEST_REGISTRATION_URL: &str =
     "https://my.tudelft.nl/student/osiris/student/inschrijvingen/toetsen/";
 
+#[automock]
+#[async_trait]
+pub trait ApiTrait {
+    async fn is_user_authenticated(
+        &self,
+        access_token: &str,
+        url: &str,
+    ) -> Result<bool, Box<dyn Error>>;
+    async fn get_access_token(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<String, Box<dyn Error>>;
+    async fn register_for_tests(
+        &self,
+        access_token: &str,
+        registered_course_url: &str,
+        test_course_url: &str,
+        test_registration_url: &str,
+    ) -> Result<Vec<TestList>, Box<dyn Error>>;
+}
+
 pub struct Api {
     client: Client,
+}
+
+#[async_trait]
+impl ApiTrait for Api {
+    async fn is_user_authenticated(
+        &self,
+        access_token: &str,
+        url: &str,
+    ) -> Result<bool, Box<dyn Error>> {
+        self.is_user_authenticated(access_token, url).await
+    }
+
+    async fn get_access_token(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<String, Box<dyn Error>> {
+        self.get_access_token(username, password).await
+    }
+
+    async fn register_for_tests(
+        &self,
+        access_token: &str,
+        registered_course_url: &str,
+        test_course_url: &str,
+        test_registration_url: &str,
+    ) -> Result<Vec<TestList>, Box<dyn Error>> {
+        self.register_for_tests(
+            access_token,
+            registered_course_url,
+            test_course_url,
+            test_registration_url,
+        )
+        .await
+    }
 }
 
 impl Api {
     /// Initializes a new instance of `Api` with a `reqwest::Client`` that persists cookies
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
+        let client = Client::builder()
             .cookie_store(true)
             .build()
             .expect("Failed to build reqwest Client");
@@ -33,7 +93,7 @@ impl Api {
         &self,
         access_token: &str,
         url: &str,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> Result<bool, Box<dyn Error>> {
         let response = self
             .client
             .get(url)
@@ -58,7 +118,7 @@ impl Api {
         &self,
         username: &str,
         password: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let (url, body) = self.initiate_authorization(AUTH_URL).await?;
         let auth_state = Self::get_auth_state(&body);
         let body = self
@@ -77,10 +137,7 @@ impl Api {
         Ok(access_token)
     }
 
-    async fn initiate_authorization(
-        &self,
-        url: &str,
-    ) -> Result<(String, String), Box<dyn std::error::Error>> {
+    async fn initiate_authorization(&self, url: &str) -> Result<(String, String), Box<dyn Error>> {
         let response = self.client.post(url).send().await?;
         let url = response.url().as_str().to_string();
         let body = response.text().await?;
@@ -107,7 +164,7 @@ impl Api {
         password: &str,
         url: &str,
         auth_state: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let mut form_data = reqwest::multipart::Form::new();
         form_data = form_data.text("username", username.to_string());
         form_data = form_data.text("password", password.to_string());
@@ -127,9 +184,7 @@ impl Api {
         Err("Incorrect username or password or form action not found".into())
     }
 
-    fn extract_saml_response(
-        body: &str,
-    ) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    fn extract_saml_response(body: &str) -> Result<(String, String, String), Box<dyn Error>> {
         let document = scraper::Html::parse_document(body);
 
         let form_selector = scraper::Selector::parse("form").unwrap();
@@ -145,7 +200,7 @@ impl Api {
     fn extract_input_value(
         element: &scraper::ElementRef,
         selector_str: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let selector = scraper::Selector::parse(selector_str).unwrap();
         match element.select(&selector).next() {
             Some(input_element) => Ok(input_element.value().attr("value").unwrap().to_string()),
@@ -158,7 +213,7 @@ impl Api {
         form_action: &str,
         saml_response: &str,
         relay_state: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn Error>> {
         let mut form_data = HashMap::new();
         form_data.insert("SAMLResponse", saml_response);
         form_data.insert("RelayState", relay_state);
@@ -175,11 +230,7 @@ impl Api {
         Ok(code.to_string())
     }
 
-    async fn request_access_token(
-        &self,
-        code: &str,
-        url: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    async fn request_access_token(&self, code: &str, url: &str) -> Result<String, Box<dyn Error>> {
         let mut body = HashMap::new();
         body.insert("code", code);
         body.insert("redirect_uri", "");
@@ -204,7 +255,7 @@ impl Api {
         registered_course_url: &str,
         test_course_url: &str,
         test_registration_url: &str,
-    ) -> Result<Vec<TestList>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<TestList>, Box<dyn Error>> {
         // Gets all the tests for all the courses that the user is currently enrolled in
         let courses = self
             .get_course_list(access_token, registered_course_url)
@@ -242,7 +293,7 @@ impl Api {
         &self,
         access_token: &str,
         course_url: &str,
-    ) -> Result<CourseList, Box<dyn std::error::Error>> {
+    ) -> Result<CourseList, Box<dyn Error>> {
         let response = self
             .client
             .get(course_url)
@@ -274,7 +325,7 @@ impl Api {
         access_token: &str,
         course_id: u32,
         url: &str,
-    ) -> Result<Option<TestList>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<TestList>, Box<dyn Error>> {
         let test_url = url.to_string() + course_id.to_string().as_str();
         let response = self
             .client
@@ -303,7 +354,7 @@ impl Api {
         access_token: &str,
         toetsen: &TestList,
         url: &str,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> Result<bool, Box<dyn Error>> {
         let response = self
             .client
             .post(url)

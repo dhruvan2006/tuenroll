@@ -1,4 +1,3 @@
-use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
@@ -6,7 +5,7 @@ use std::error::Error;
 use std::io::Write;
 use std::{env, io};
 
-use crate::api::{self, Api};
+use crate::api::{self, ApiTrait};
 
 /// Represents user credentials, including username, password, and access token.
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -35,7 +34,7 @@ impl Credentials {
         Ok(())
     }
 
-    fn load_from_keyring(service: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn load_from_keyring(service: &str) -> Result<Self, Box<dyn Error>> {
         let mut credentials = Self::default();
 
         if let Ok(entry) = Entry::new(service, "username") {
@@ -74,30 +73,28 @@ impl Credentials {
     }
 }
 
-pub struct CredentialManager {
-    api: Api,
+pub struct CredentialManager<T: ApiTrait> {
+    api: T,
+    service_name: String,
 }
 
-impl CredentialManager {
-    pub const SERVICE_NAME: &'static str = "tuenroll";
-
-    pub fn new() -> Self {
-        Self { api: Api::new() }
+impl<T: ApiTrait> CredentialManager<T> {
+    pub fn new(api: T, service_name: String) -> Self {
+        Self { api, service_name }
     }
 
     pub fn delete_credentials(&self) {
-        let _ = Credentials::delete_from_keyring(Self::SERVICE_NAME);
+        let _ = Credentials::delete_from_keyring(self.service_name.as_str());
     }
 
-    pub fn has_credentials(&self, service: &str) -> bool {
-        Credentials::load_from_keyring(service)
+    pub fn has_credentials(&self) -> bool {
+        Credentials::load_from_keyring(&self.service_name)
             .map(|creds| !creds.is_empty())
             .unwrap_or(false)
     }
 
     /// Prompt the user for credentials.
-    // TODO: Test
-    fn prompt_for_credentials(&self) -> Credentials {
+    pub fn prompt_for_credentials() -> Credentials {
         let mut username = String::new();
 
         print!("Username: ");
@@ -117,47 +114,51 @@ impl CredentialManager {
         }
     }
 
-    // TODO: Test
     pub async fn change_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
         self.delete_credentials();
-        self.get_valid_credentials().await
+        self.get_valid_credentials(
+            Credentials::load_from_keyring,
+            CredentialManager::<T>::prompt_for_credentials,
+        )
+        .await
     }
 
     /// Retrieves valid credentials with an access token.
     /// If the access token is missing or invalid, it fetches a new one and updates the config.
-    // TODO: Test
-    pub async fn get_valid_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
-        let mut credentials =
-            Credentials::load_from_keyring(Self::SERVICE_NAME).unwrap_or_default();
+    pub async fn get_valid_credentials<F, G>(
+        &self,
+        loader: F,
+        prompt_fn: G,
+    ) -> Result<Credentials, Box<dyn Error>>
+    where
+        F: Fn(&str) -> Result<Credentials, Box<dyn Error>>,
+        G: Fn() -> Credentials,
+    {
+        let mut credentials = loader(self.service_name.as_str()).unwrap_or_default();
 
-        loop {
-            if credentials.is_empty() {
-                credentials = self.prompt_for_credentials();
-            }
+        if credentials.is_empty() {
+            credentials = prompt_fn();
+        }
 
-            let pb = self.setup_progress_bar(&mut credentials);
-            if self
-                .validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL)
-                .await?
-            {
-                self.cleanup_progress_bar(&pb);
-                return Ok(credentials);
-            }
-
-            if let Err(e) = self.retrieve_new_access_token(&mut credentials).await {
-                self.cleanup_progress_bar(&pb);
-                eprintln!("{}", format!("Login failed: {e}.").red().bold());
-                if e.to_string().contains("Network request error") {
-                    return Err("Network request error;".into());
-                }
-            } else {
-                self.cleanup_progress_bar(&pb);
-                println!("{}", "Credentials validated successfully!".green().bold());
-                return Ok(credentials);
-            }
-
+        let pb = self.setup_progress_bar(&mut credentials);
+        if self
+            .validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL)
+            .await?
+        {
             self.cleanup_progress_bar(&pb);
-            credentials = self.prompt_for_credentials();
+            return Ok(credentials);
+        }
+
+        if let Err(e) = self.retrieve_new_access_token(&mut credentials).await {
+            self.cleanup_progress_bar(&pb);
+            if e.to_string().contains("Network request error") {
+                Err("Network request error".into())
+            } else {
+                Err(e)
+            }
+        } else {
+            self.cleanup_progress_bar(&pb);
+            Ok(credentials)
         }
     }
 
@@ -177,6 +178,7 @@ impl CredentialManager {
         Ok(false)
     }
 
+    /// Requires you to assure that the `credentials` has Some(username) and Some(password) not None
     async fn retrieve_new_access_token(
         &self,
         credentials: &mut Credentials,
@@ -186,7 +188,7 @@ impl CredentialManager {
             let result = self.api.get_access_token(username, password).await;
             return if let Ok(token) = result {
                 credentials.access_token = Some(token);
-                let _ = credentials.save_to_keyring(Self::SERVICE_NAME);
+                let _ = credentials.save_to_keyring(self.service_name.as_str());
                 Ok(())
             } else {
                 match result {
@@ -197,7 +199,8 @@ impl CredentialManager {
                 }
             };
         }
-        Err("A network error likely occurred".into())
+
+        Err("Missing credentials".into())
     }
 
     /// Setup progress bar for long operations.
@@ -229,7 +232,10 @@ impl CredentialManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::MockApiTrait;
+    use api::Api;
     use keyring::Entry;
+    use mockall::predicate::{always, eq};
     use uuid::Uuid;
 
     fn generate_unique_service() -> String {
@@ -248,6 +254,9 @@ mod tests {
         credentials
             .save_to_keyring(service)
             .expect("Failed to save test credentials");
+
+        // Give time for the OS to save keyring
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
     fn verify_credentials_absence(service: &str) {
@@ -267,6 +276,9 @@ mod tests {
 
     fn cleanup_service(service: &str) {
         let _ = Credentials::delete_from_keyring(service);
+
+        // Give time for the OS to save keyring
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
     #[cfg(target_os = "windows")]
@@ -276,8 +288,6 @@ mod tests {
         let credentials = setup_test_credentials();
 
         save_test_credentials(&test_service, &credentials);
-
-        std::thread::sleep(std::time::Duration::from_secs(1));
 
         // Verify credentials were saved
         assert_eq!(
@@ -313,8 +323,6 @@ mod tests {
 
         save_test_credentials(&test_service, &credentials);
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
         // Load credentials from the keyring
         let loaded_credentials = Credentials::load_from_keyring(&test_service).unwrap();
         assert_eq!(loaded_credentials.username, credentials.username);
@@ -345,8 +353,6 @@ mod tests {
 
         save_test_credentials(&test_service, &empty_credentials);
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
-
         verify_credentials_absence(&test_service);
 
         cleanup_service(&test_service);
@@ -359,8 +365,6 @@ mod tests {
         let credentials = setup_test_credentials();
 
         save_test_credentials(&test_service, &credentials);
-
-        std::thread::sleep(std::time::Duration::from_secs(1));
 
         // Delete credentials
         cleanup_service(&test_service);
@@ -390,21 +394,14 @@ mod tests {
         assert!(!credentials.is_empty());
     }
 
-    // TODO: Use mocked API
     #[tokio::test]
     async fn test_validate_stored_token_with_valid_token() {
-        let mut server = mockito::Server::new_async().await;
-        let _mock = server
-            .mock("GET", "/test")
-            .with_status(200)
-            .with_header("Authorization", "Bearer valid_token")
-            .with_body(
-                serde_json::json!({
-                    "random": "json test body"
-                })
-                .to_string(),
-            )
-            .create();
+        let mut mock_api = MockApiTrait::new();
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("valid_token"), eq("/test"))
+            .times(1)
+            .returning(|_, _| Ok(true));
 
         let mut credentials = Credentials {
             username: Some("test_user".to_string()),
@@ -412,22 +409,22 @@ mod tests {
             access_token: Some("valid_token".to_string()),
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
 
-        let url = format!("{}/test", server.url());
-        let result = manager.validate_stored_token(&mut credentials, &url).await;
+        let result = manager
+            .validate_stored_token(&mut credentials, "/test")
+            .await;
         assert!(result.unwrap());
     }
 
     #[tokio::test]
     async fn test_validate_stored_token_with_expired_token() {
-        let mut server = mockito::Server::new_async().await;
-        let _mock = server
-            .mock("GET", "/test")
-            .with_status(200)
-            .with_header("Authorization", "Bearer valid_token")
-            .with_body("")
-            .create();
+        let mut mock_api = MockApiTrait::new();
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("expired_token"), eq("/test"))
+            .times(1)
+            .returning(|_, _| Ok(false));
 
         let mut credentials = Credentials {
             username: Some("test_user".to_string()),
@@ -435,66 +432,114 @@ mod tests {
             access_token: Some("expired_token".to_string()),
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
 
-        let url = format!("{}/test", server.url());
-        let result = manager.validate_stored_token(&mut credentials, &url).await;
+        let result = manager
+            .validate_stored_token(&mut credentials, "/test")
+            .await;
         assert!(!result.unwrap());
     }
 
     #[tokio::test]
     async fn test_validate_stored_token_with_none_token() {
+        let mock_api = MockApiTrait::new();
+
         let mut credentials = Credentials {
             username: Some("test_user".to_string()),
             password: Some("test_password".to_string()),
             access_token: None,
         };
 
-        let manager = CredentialManager::new();
-        let result = manager.validate_stored_token(&mut credentials, "").await;
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
+        let result = manager
+            .validate_stored_token(&mut credentials, "/test")
+            .await;
         assert!(!result.unwrap());
     }
 
-    // TODO: Use mocked api
     #[tokio::test]
-    async fn test_retrieve_new_access_token_invalid_url() {
+    async fn test_retrieve_new_access_token_valid_creds() {
+        let mut mock_api = MockApiTrait::new();
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .times(1)
+            .returning(|_, _| Ok("access_token".to_string()));
+
         let mut credentials = Credentials {
-            username: Some("valid_user".to_string()),
-            password: Some("valid_pass".to_string()),
-            ..Default::default()
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: None,
         };
 
-        let manager = CredentialManager::new();
+        let test_service = generate_unique_service();
+        let manager = CredentialManager::new(mock_api, test_service);
+
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert!(credentials.access_token.is_some());
+        assert_eq!(credentials.access_token.unwrap(), "access_token");
     }
 
     #[tokio::test]
-    async fn test_retrieve_new_access_token_invalid_password() {
+    async fn test_retrieve_new_access_token_with_invalid_creds() {
+        let mut mock_api = MockApiTrait::new();
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .times(1)
+            .returning(|_, _| Err("authentication failed".into()));
+
         let mut credentials = Credentials {
-            username: Some("valid_user".to_string()),
-            password: Some("incorrect".to_string()),
-            ..Default::default()
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: None,
         };
 
-        let manager = CredentialManager::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "Invalid credentials");
         assert!(credentials.access_token.is_none());
     }
 
     #[tokio::test]
-    async fn test_retrieve_new_access_token_missing_creds() {
-        let mut credentials = Credentials::default();
+    async fn test_retrieve_new_access_token_with_network_error() {
+        let mut mock_api = MockApiTrait::new();
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .times(1)
+            .returning(|_, _| Err("error sending request".into()));
 
-        let manager = CredentialManager::new();
+        let mut credentials = Credentials {
+            username: Some("test_user".to_string()),
+            password: Some("test_password".to_string()),
+            access_token: None,
+        };
 
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
         let result = manager.retrieve_new_access_token(&mut credentials).await;
 
         assert!(result.is_err());
-        assert!(credentials.is_empty());
+        assert_eq!(result.unwrap_err().to_string(), "Network request error");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_delete_credentials() {
+        let test_service = generate_unique_service();
+        let credentials = setup_test_credentials();
+
+        save_test_credentials(&test_service, &credentials);
+
+        // Delete credentials
+        let manager = CredentialManager::new(Api::new(), test_service.clone());
+        manager.delete_credentials();
+
+        verify_credentials_absence(&test_service);
     }
 
     #[cfg(target_os = "windows")]
@@ -512,10 +557,12 @@ mod tests {
 
         let _ = credentials.save_to_keyring(&service);
 
-        let credential_manager = CredentialManager::new();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        let credential_manager = CredentialManager::new(Api::new(), service.clone());
 
         // Test if has_credentials returns true
-        assert!(credential_manager.has_credentials(&service));
+        assert!(credential_manager.has_credentials());
 
         cleanup_service(&service);
     }
@@ -526,10 +573,10 @@ mod tests {
         let credentials = Credentials::default();
         save_test_credentials(&service, &credentials);
 
-        let credential_manager = CredentialManager::new();
+        let credential_manager = CredentialManager::new(Api::new(), service.clone());
 
         // Test if has_credentials returns false
-        assert!(!credential_manager.has_credentials(&service));
+        assert!(!credential_manager.has_credentials());
 
         cleanup_service(&service);
     }
@@ -538,9 +585,288 @@ mod tests {
     fn test_has_credentials_with_missing_file() {
         let service = generate_unique_service();
 
-        let credential_manager = CredentialManager::new();
+        let credential_manager = CredentialManager::new(Api::new(), service.clone());
 
         // Test if has_credentials returns false when the file is missing
-        assert!(!credential_manager.has_credentials(&service));
+        assert!(!credential_manager.has_credentials());
+    }
+
+    #[test]
+    fn test_setup_progress_bar_with_daemonized_env() {
+        env::set_var("DAEMONIZED", "1");
+        let mock_api = MockApiTrait::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
+
+        let mut credentials = Credentials::default();
+        let pb = manager.setup_progress_bar(&mut credentials);
+        assert!(pb.is_none());
+
+        env::remove_var("DAEMONIZED");
+    }
+
+    #[test]
+    fn test_setup_progress_bar_with_empty_credentials() {
+        let mock_api = MockApiTrait::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
+
+        let mut credentials = Credentials::default();
+        let pb = manager.setup_progress_bar(&mut credentials);
+        assert!(pb.is_none());
+    }
+
+    #[test]
+    fn test_setup_progress_bar_with_valid_credentials() {
+        let mock_api = MockApiTrait::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
+
+        let mut credentials = Credentials {
+            username: Some("user".to_string()),
+            password: Some("password".to_string()),
+            access_token: Some("token".to_string()),
+        };
+
+        let pb = manager.setup_progress_bar(&mut credentials);
+        assert!(pb.is_some());
+    }
+
+    #[test]
+    fn test_cleanup_progress_bar() {
+        let mock_api = MockApiTrait::new();
+        let manager = CredentialManager::new(mock_api, "test_service".to_string());
+
+        let pb = ProgressBar::new_spinner();
+        pb.set_message("Validating credentials...");
+        let pb_option = Some(pb);
+
+        manager.cleanup_progress_bar(&pb_option);
+        assert!(pb_option.unwrap().is_finished());
+    }
+
+    #[tokio::test]
+    async fn test_get_valid_credentials_with_valid_token() {
+        let mut mock_api = MockApiTrait::new();
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("valid_token"), always())
+            .returning(|_, _| Ok(true));
+
+        let service_name = generate_unique_service();
+
+        let manager = CredentialManager::new(mock_api, service_name);
+
+        let mock_loader = |_service: &str| -> Result<Credentials, Box<dyn Error>> {
+            Ok(Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: Some("valid_token".to_string()),
+            })
+        };
+
+        let mock_prompt = || -> Credentials { Credentials::default() };
+
+        let result = manager
+            .get_valid_credentials(mock_loader, mock_prompt)
+            .await;
+        assert!(result.is_ok());
+        let creds = result.unwrap();
+        assert_eq!(creds.username, Some("test_user".to_string()));
+        assert_eq!(creds.access_token, Some("valid_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_valid_credentials_with_invalid_token() {
+        let mut mock_api = MockApiTrait::new();
+
+        // First call to `is_user_authenticated` with an invalid token.
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("invalid_token"), always())
+            .returning(|_, _| Ok(false));
+
+        // Call to `get_access_token` returns a new valid token.
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .returning(|_, _| Ok("new_valid_token".to_string()));
+
+        let service_name = generate_unique_service();
+        let manager = CredentialManager::new(mock_api, service_name);
+
+        let mock_loader = |_service: &str| -> Result<Credentials, Box<dyn Error>> {
+            Ok(Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: Some("invalid_token".to_string()),
+            })
+        };
+
+        let mock_prompt = || -> Credentials { Credentials::default() };
+
+        let result = manager
+            .get_valid_credentials(mock_loader, mock_prompt)
+            .await;
+        assert!(result.is_ok());
+        let creds = result.unwrap();
+        assert_eq!(creds.username, Some("test_user".to_string()));
+        assert_eq!(creds.access_token, Some("new_valid_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_valid_credentials_with_no_credentials_from_loader() {
+        let mut mock_api = MockApiTrait::new();
+
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("valid_token"), always())
+            .returning(|_, _| Ok(true));
+
+        let service_name = generate_unique_service();
+
+        let manager = CredentialManager::new(mock_api, service_name);
+
+        let mock_loader = |_service: &str| -> Result<Credentials, Box<dyn Error>> {
+            Ok(Credentials::default()) // Returns no credentials.
+        };
+
+        let mock_prompt = || -> Credentials {
+            Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: Some("valid_token".to_string()),
+            }
+        };
+
+        let result = manager
+            .get_valid_credentials(mock_loader, mock_prompt)
+            .await;
+        assert!(result.is_ok());
+        let creds = result.unwrap();
+        assert_eq!(creds.username, Some("test_user".to_string()));
+        assert_eq!(creds.access_token, Some("valid_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_valid_credentials_with_missing_access_token() {
+        let mut mock_api = MockApiTrait::new();
+
+        // Test if access token is missing and loader does not return one.
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("missing_token"), always())
+            .returning(|_, _| Ok(false));
+
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .returning(|_, _| Ok("new_valid_token".to_string()));
+
+        let service_name = generate_unique_service();
+        let manager = CredentialManager::new(mock_api, service_name);
+
+        let mock_loader = |_service: &str| -> Result<Credentials, Box<dyn Error>> {
+            Ok(Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: None, // No access token.
+            })
+        };
+
+        let mock_prompt = || -> Credentials {
+            Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: Some("new_valid_token".to_string()),
+            }
+        };
+
+        let result = manager
+            .get_valid_credentials(mock_loader, mock_prompt)
+            .await;
+        assert!(result.is_ok());
+        let creds = result.unwrap();
+        assert_eq!(creds.username, Some("test_user".to_string()));
+        assert_eq!(creds.access_token, Some("new_valid_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_valid_credentials_with_empty_credentials() {
+        let mut mock_api = MockApiTrait::new();
+
+        // No credentials loaded from loader.
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("empty_token"), always())
+            .returning(|_, _| Ok(false));
+
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .returning(|_, _| Ok("new_valid_token".to_string()));
+
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("new_valid_token"), always())
+            .returning(|_, _| Ok(true));
+
+        let service_name = generate_unique_service();
+        let manager = CredentialManager::new(mock_api, service_name);
+
+        let mock_loader = |_service: &str| -> Result<Credentials, Box<dyn Error>> {
+            Ok(Credentials::default()) // Empty credentials.
+        };
+
+        let mock_prompt = || -> Credentials {
+            Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: Some("new_valid_token".to_string()),
+            }
+        };
+
+        let result = manager
+            .get_valid_credentials(mock_loader, mock_prompt)
+            .await;
+        assert!(result.is_ok());
+        let creds = result.unwrap();
+        assert_eq!(creds.username, Some("test_user".to_string()));
+        assert_eq!(creds.access_token, Some("new_valid_token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_valid_credentials_with_network_error() {
+        let mut mock_api = MockApiTrait::new();
+
+        // Simulate a network error on token retrieval.
+        mock_api
+            .expect_is_user_authenticated()
+            .with(eq("invalid_token"), always())
+            .returning(|_, _| Ok(false));
+
+        mock_api
+            .expect_get_access_token()
+            .with(eq("test_user"), eq("test_password"))
+            .returning(|_, _| Err("error sending request".into()));
+
+        let service_name = generate_unique_service();
+        let manager = CredentialManager::new(mock_api, service_name);
+
+        let mock_loader = |_service: &str| -> Result<Credentials, Box<dyn Error>> {
+            Ok(Credentials {
+                username: Some("test_user".to_string()),
+                password: Some("test_password".to_string()),
+                access_token: Some("invalid_token".to_string()),
+            })
+        };
+
+        let mock_prompt = || -> Credentials { Credentials::default() };
+
+        let result = manager
+            .get_valid_credentials(mock_loader, mock_prompt)
+            .await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Network request error".to_string()
+        );
     }
 }
