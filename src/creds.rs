@@ -69,7 +69,7 @@ impl Credentials {
     }
 
     fn is_empty(&self) -> bool {
-        self.username.is_none() && self.password.is_none() && self.access_token.is_none()
+        self.username.is_none() || self.password.is_none()
     }
 }
 
@@ -114,21 +114,13 @@ impl<T: ApiTrait> CredentialManager<T> {
         }
     }
 
-    pub async fn change_credentials(&self) -> Result<Credentials, Box<dyn Error>> {
-        self.delete_credentials();
-        self.get_valid_credentials(
-            Credentials::load_from_keyring,
-            CredentialManager::<T>::prompt_for_credentials,
-        )
-        .await
-    }
-
     /// Retrieves valid credentials with an access token.
     /// If the access token is missing or invalid, it fetches a new one and updates the config.
     pub async fn get_valid_credentials<F, G>(
         &self,
         loader: F,
         prompt_fn: G,
+        show_spinner: bool,
     ) -> Result<Credentials, Box<dyn Error>>
     where
         F: Fn(&str) -> Result<Credentials, Box<dyn Error>>,
@@ -140,31 +132,42 @@ impl<T: ApiTrait> CredentialManager<T> {
             credentials = prompt_fn();
         }
 
-        let pb = self.setup_progress_bar(&mut credentials);
+        let pb = if show_spinner {
+            Some(self.setup_progress_bar(&mut credentials))
+        } else {
+            None
+        };
+
         if self
-            .validate_stored_token(&mut credentials, api::REGISTERED_COURSE_URL)
+            .validate_stored_token(&credentials, api::REGISTERED_COURSE_URL)
             .await?
         {
-            self.cleanup_progress_bar(&pb);
+            if let Some(pb) = pb {
+                self.cleanup_progress_bar(&pb);
+            }
             return Ok(credentials);
         }
 
         if let Err(e) = self.retrieve_new_access_token(&mut credentials).await {
-            self.cleanup_progress_bar(&pb);
+            if let Some(pb) = pb {
+                self.cleanup_progress_bar(&pb);
+            }
             if e.to_string().contains("Network request error") {
                 Err("Network request error".into())
             } else {
                 Err(e)
             }
         } else {
-            self.cleanup_progress_bar(&pb);
+            if let Some(pb) = pb {
+                self.cleanup_progress_bar(&pb);
+            }
             Ok(credentials)
         }
     }
 
-    async fn validate_stored_token(
+    pub async fn validate_stored_token(
         &self,
-        credentials: &mut Credentials,
+        credentials: &Credentials,
         url: &str,
     ) -> Result<bool, Box<dyn Error>> {
         if let Some(token) = &credentials.access_token {
@@ -665,7 +668,7 @@ mod tests {
         let mock_prompt = || -> Credentials { Credentials::default() };
 
         let result = manager
-            .get_valid_credentials(mock_loader, mock_prompt)
+            .get_valid_credentials(mock_loader, mock_prompt, true)
             .await;
         assert!(result.is_ok());
         let creds = result.unwrap();
@@ -703,7 +706,7 @@ mod tests {
         let mock_prompt = || -> Credentials { Credentials::default() };
 
         let result = manager
-            .get_valid_credentials(mock_loader, mock_prompt)
+            .get_valid_credentials(mock_loader, mock_prompt, true)
             .await;
         assert!(result.is_ok());
         let creds = result.unwrap();
@@ -737,7 +740,7 @@ mod tests {
         };
 
         let result = manager
-            .get_valid_credentials(mock_loader, mock_prompt)
+            .get_valid_credentials(mock_loader, mock_prompt, true)
             .await;
         assert!(result.is_ok());
         let creds = result.unwrap();
@@ -780,7 +783,7 @@ mod tests {
         };
 
         let result = manager
-            .get_valid_credentials(mock_loader, mock_prompt)
+            .get_valid_credentials(mock_loader, mock_prompt, true)
             .await;
         assert!(result.is_ok());
         let creds = result.unwrap();
@@ -824,7 +827,7 @@ mod tests {
         };
 
         let result = manager
-            .get_valid_credentials(mock_loader, mock_prompt)
+            .get_valid_credentials(mock_loader, mock_prompt, true)
             .await;
         assert!(result.is_ok());
         let creds = result.unwrap();
@@ -861,7 +864,7 @@ mod tests {
         let mock_prompt = || -> Credentials { Credentials::default() };
 
         let result = manager
-            .get_valid_credentials(mock_loader, mock_prompt)
+            .get_valid_credentials(mock_loader, mock_prompt, true)
             .await;
         assert!(result.is_err());
         assert_eq!(
