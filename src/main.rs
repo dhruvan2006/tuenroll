@@ -92,8 +92,8 @@ async fn main() {
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            let _ = get_credentials(&manager, false).await;
-            match run_auto_sign_up(false, &manager).await {
+            let _ = get_credentials(&manager, false, false).await;
+            match run_auto_sign_up(false, &manager, false).await {
                 Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
                 Err(err) if err == "Invalid credentials" => {
                     // Invalid credentials should definitely never happen
@@ -107,7 +107,7 @@ async fn main() {
 
             // WARNING: Do not have any print statements or the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
-                let _ = get_credentials(&manager, true).await;
+                let _ = get_credentials(&manager, true, *boot).await;
 
                 // Checks whether a process was running, if not don't run the program
                 if *boot && get_stored_pid().is_none() {
@@ -143,7 +143,7 @@ async fn main() {
                 return;
             } else {
                 info!("Daemon process enabled: starting loop");
-                run_loop(interval, &manager).await;
+                run_loop(interval, &manager, *boot).await;
             }
         }
         Commands::Stop => {
@@ -195,7 +195,7 @@ async fn main() {
         Commands::Change => {
             info!("Changing credentials.");
             manager.delete_credentials();
-            let _ = get_credentials(&manager, true).await;
+            let _ = get_credentials(&manager, false, false).await;
         }
         Commands::Delete => {
             info!("Deleting credentials.");
@@ -336,8 +336,8 @@ fn display_logo() {
     );
 }
 
-async fn run_loop<T: ApiTrait>(interval: &u32, manager: &CredentialManager<T>) {
-    let _ = run_auto_sign_up(true, manager).await;
+async fn run_loop<T: ApiTrait>(interval: &u32, manager: &CredentialManager<T>, is_boot: bool) {
+    let _ = run_auto_sign_up(true, manager, is_boot).await;
 
     let mut start_time = std::time::SystemTime::now();
     loop {
@@ -349,7 +349,7 @@ async fn run_loop<T: ApiTrait>(interval: &u32, manager: &CredentialManager<T>) {
             >= (interval * 3600).into()
         {
             info!("Running auto sign up");
-            match run_auto_sign_up(true, manager).await {
+            match run_auto_sign_up(true, manager, is_boot).await {
                 Ok(_) => info!("Auto sign-up successful."),
                 Err(err) if err == "Invalid credentials" => {
                     error!("Invalid credentials detected.");
@@ -457,6 +457,7 @@ fn process_is_running() -> bool {
 async fn get_credentials<T: ApiTrait>(
     manager: &CredentialManager<T>,
     is_loop: bool,
+    is_boot: bool,
 ) -> Credentials {
     let credentials;
 
@@ -464,11 +465,13 @@ async fn get_credentials<T: ApiTrait>(
         let request = manager.get_valid_credentials(
             Credentials::load_from_keyring,
             CredentialManager::<T>::prompt_for_credentials,
-            true,
+            !is_boot,
         );
-        if let Some(data) = handle_request(is_loop, request.await) {
+        if let Some(data) = handle_request(is_loop, request.await, is_boot) {
             credentials = data;
-            println!("{}", "Credentials validated successfully!".green().bold());
+            if !is_boot {
+                println!("{}", "Credentials validated successfully!".green().bold());
+            }
             break;
         }
     }
@@ -483,6 +486,7 @@ async fn get_credentials<T: ApiTrait>(
 async fn run_auto_sign_up<T: ApiTrait>(
     is_loop: bool,
     manager: &CredentialManager<T>,
+    is_boot: bool,
 ) -> Result<(), String> {
     // Creds don't exist
     let credentials = manager
@@ -519,7 +523,7 @@ async fn run_auto_sign_up<T: ApiTrait>(
             api::TEST_COURSE_URL,
             api::TEST_REGISTRATION_URL,
         );
-        if let Some(data) = handle_request(is_loop, request.await) {
+        if let Some(data) = handle_request(is_loop, request.await, is_boot) {
             registration_result = data;
             break;
         }
@@ -563,12 +567,18 @@ fn show_notification(body: &str) {
     }
 }
 
-fn handle_request<R, E: ToString>(is_loop: bool, request: Result<R, E>) -> Option<R> {
+fn handle_request<R, E: ToString>(
+    is_loop: bool,
+    request: Result<R, E>,
+    is_boot: bool,
+) -> Option<R> {
     match request {
         Ok(data) => Some(data),
         Err(e) => {
             // Logs the error and wait 5 seconds before continuing
-            eprintln!("{}", e.to_string().red().bold());
+            if !is_boot {
+                eprintln!("{}", e.to_string().red().bold());
+            }
             error!("{}", e.to_string());
 
             if e.to_string() != "Invalid credentials" {
