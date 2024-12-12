@@ -779,29 +779,35 @@ mod tests {
             )
             .create();
 
+        let test_1234 = serde_json::json!({
+            "id_cursus": 1234, "studentnummer": "s1234567", "cursus": "Software Testing", "collegejaar": 2024, "cursus_korte_naam": "ST", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
+            "toetsen": [
+                {"id_cursus": 1234, "id_toets_gelegenheid": 69,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
+                { "id_cursus": 1234, "id_toets_gelegenheid": 70, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-20", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
+            ]
+        });
+
+        let test_12345678 = serde_json::json!({
+            "id_cursus": 12345678, "studentnummer": "s1234567", "cursus": "Algorithm Design", "collegejaar": 2024, "cursus_korte_naam": "AD", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
+            "toetsen": [
+                {"id_cursus": 12345678, "id_toets_gelegenheid": 12,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
+                { "id_cursus": 12345678, "id_toets_gelegenheid": 13, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-12", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
+            ]
+        });
+
         // Mocks for all the get requests of the tests for each course
-        let _mock_test_software_quality = server.mock("GET", "/tests/1234")
+        let _mock_test_software_quality = server
+            .mock("GET", "/tests/1234")
             .match_header("authorization", "Bearer valid_token")
             .with_status(200)
-            .with_body(serde_json::json!({
-                "id_cursus": 1234, "studentnummer": "s1234567", "cursus": "Software Testing", "collegejaar": 2024, "cursus_korte_naam": "ST", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
-                "toetsen": [
-                    {"id_cursus": 1234, "id_toets_gelegenheid": 69,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
-                    { "id_cursus": 1234, "id_toets_gelegenheid": 70, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-20", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
-                ]
-            }).to_string())
+            .with_body(test_1234.to_string())
             .create();
 
-        let _mock_test_algorithm = server.mock("GET", "/tests/12345678")
+        let _mock_test_algorithm = server
+            .mock("GET", "/tests/12345678")
             .match_header("authorization", "Bearer valid_token")
             .with_status(200)
-            .with_body(serde_json::json!({
-                "id_cursus": 12345678, "studentnummer": "s1234567", "cursus": "Algorithm Design", "collegejaar": 2024, "cursus_korte_naam": "AD", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
-                "toetsen": [
-                    {"id_cursus": 12345678, "id_toets_gelegenheid": 12,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
-                    { "id_cursus": 12345678, "id_toets_gelegenheid": 13, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-12", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
-                ]
-            }).to_string())
+            .with_body(test_12345678.to_string())
             .create();
 
         let _mock_test_software_project = server
@@ -817,35 +823,32 @@ mod tests {
             .create();
 
         // Mocks for the registration post requests
-        let software_test_registration = server.mock("POST", "/test-reg")
+        let software_test_registration = server
+            .mock("POST", "/test-reg")
             .match_header("authorization", "Bearer valid_token")
-            .match_body(mockito::Matcher::PartialJsonString(serde_json::json!({
-                "id_cursus": 1234, "studentnummer": "s1234567", "cursus": "Software Testing", "collegejaar": 2024, "cursus_korte_naam": "ST", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
-                "toetsen": [
-                    {"id_cursus": 1234, "id_toets_gelegenheid": 69,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
-                    { "id_cursus": 1234, "id_toets_gelegenheid": 70, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-20", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
-                ]
-            }).to_string()))
+            .match_body(mockito::Matcher::PartialJsonString(test_1234.to_string()))
             .with_status(200)
-            .with_body(r#"{"statusmeldingen": ""}"#)
+            .with_body(r#"{"statusmeldingen": []}"#)
             .create();
 
-        let algorithm_test_registration = server.mock("POST", "/test-reg")
+        let algorithm_test_registration = server
+            .mock("POST", "/test-reg")
             .match_header("authorization", "Bearer valid_token")
-            .match_body(mockito::Matcher::PartialJsonString(serde_json::json!({
-                "id_cursus": 12345678, "studentnummer": "s1234567", "cursus": "Algorithm Design", "collegejaar": 2024, "cursus_korte_naam": "AD", "opmerking_cursus": "Bring your laptop to all sessions", "punten": 5, "punteneenheid": "ECTS", "coordinerend_onderdeel_oms": "Department of Computer Science", "faculteit_naam": "Faculty of Science", "categorie_omschrijving": "Required Course", "cursustype_omschrijving": "Regular Course", "onderdeel_van": "Bachelor Computer Science",
-                "toetsen": [
-                    {"id_cursus": 12345678, "id_toets_gelegenheid": 12,"toets": "Final Exam", "toets_omschrijving": "Written examination covering all course material", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 2", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block A", "periode_omschrijving": "Q2", "gelegenheid": 1, "beschikbare_plekken": 150, "toetsdatum": "2024-11-09", "dag": "Monday", "tijd_vanaf": 9.0, "tijd_tm": 12.0, "locatie": "Science Park 904 - H0.08", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] },
-                    { "id_cursus": 12345678, "id_toets_gelegenheid": 13, "toets": "Resit Exam", "toets_omschrijving": "Resit examination for those who failed the first attempt", "toetsvorm_omschrijving": "Written Exam", "opmerking_cursus_toets": "No books allowed", "aanvangsblok": "Block 3", "onderwijsvorm": "Lecture", "onderwijsvorm_omschrijving": "Lectures and practical sessions", "blok": "Block B", "periode_omschrijving": "Q3", "gelegenheid": 2, "beschikbare_plekken": 50, "toetsdatum": "2024-12-12", "dag": "Friday", "tijd_vanaf": 13.0, "tijd_tm": 16.0, "locatie": "Science Park 904 - H0.09", "locatie_x": "52.3564", "locatie_y": "4.9565", "eerder_voldoende_behaald": "No", "voorzieningen": [ "Extra time", "Laptop", "Power outlet" ] }
-                ]
-            }).to_string()))
+            .match_body(mockito::Matcher::PartialJsonString(
+                test_12345678.to_string(),
+            ))
             .with_status(200)
-            .with_body(r#"{"statusmeldingen": ""}"#)
+            .with_body(r#"{"statusmeldingen": []}"#)
             .create();
 
         let course_url = &format!("{}/cursussen", server.url());
         let test_url = &format!("{}/tests/", server.url());
         let test_reg_url = &format!("{}/test-reg", server.url());
+
+        let expected_tests: Vec<TestList> = vec![
+            serde_json::from_value(test_12345678).expect("Conversion failed"),
+            serde_json::from_value(test_1234).expect("Conversion failed"),
+        ];
 
         let api = Api::new();
         let result = api
@@ -853,7 +856,11 @@ mod tests {
             .await;
 
         assert!(result.is_ok());
-        println!("{:?}", result.unwrap());
+
+        let result = result.unwrap();
+
+        assert_eq!(expected_tests, result);
+
         algorithm_test_registration.assert();
         software_test_registration.assert();
     }

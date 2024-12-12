@@ -20,7 +20,7 @@ pub struct Course {
 }
 
 // Registering for a course requires the entire test details
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct TestList {
     pub id_cursus: u32,
     pub studentnummer: String,
@@ -38,7 +38,7 @@ pub struct TestList {
     pub toetsen: Vec<Test>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Test {
     pub id_cursus: u32,
     pub id_toets_gelegenheid: u32,
