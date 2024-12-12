@@ -556,7 +556,7 @@ fn show_notification(body: &str) {
         .summary("TUEnroll")
         .body(body)
         .icon("info")
-        .timeout(10)
+        .timeout(5 * 1000) // 5 seconds
         .show()
     {
         error!("Failed to show notification: {}", e);
