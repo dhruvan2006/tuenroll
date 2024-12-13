@@ -449,12 +449,14 @@ fn process_is_running() -> bool {
 }
 
 fn show_notification(body: &str) {
-    if let Err(e) = Notification::new()
-        .app_id(APP_NAME)
-        .body(body)
-        .timeout(5 * 1000) // 5 seconds
-        .show()
-    {
+    let mut notification = Notification::new();
+
+    let notification = notification.body(body).timeout(5 * 1000); // 5 seconds
+
+    #[cfg(target_os = "windows")]
+    let notification = notification.app_id(APP_NAME);
+
+    if let Err(e) = notification.show() {
         error!("Failed to show notification: {}", e);
     }
 }
