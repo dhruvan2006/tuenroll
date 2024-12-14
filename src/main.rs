@@ -106,6 +106,7 @@ async fn main() {
 
     match &cli.command {
         Commands::Run => {
+            show_notification("body").await;
             info!("Starting the 'Run' command execution.");
             let run_controller = Controller::new(Api::new(), exit_fn, manager, false, false);
             let _ = run_controller.get_credentials().await;
@@ -687,7 +688,12 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_os = "windows")]
 fn setup_registry() {
-    if registry::registry(logo_path.to_str().unwrap(), APP_NAME).is_ok() {
+    if registry::registry(
+        get_config_path(CONFIG_DIR, LOGO).to_str().unwrap(),
+        APP_NAME,
+    )
+    .is_ok()
+    {
         info!("Registry succesfully setup.");
     } else {
         error!("Registry setup was unsuccesful");
