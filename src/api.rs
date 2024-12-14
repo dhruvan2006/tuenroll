@@ -9,6 +9,7 @@ use std::error::Error;
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
 
+pub const BASE_URL: &str = "https://my.tudelft.nl";
 pub const REGISTERED_COURSE_URL: &str = "https://my.tudelft.nl/student/osiris/student/inschrijvingen/cursussen?toon_historie=N&limit=25";
 pub const TEST_COURSE_URL: &str =
     "https://my.tudelft.nl/student/osiris/student/cursussen_voor_toetsinschrijving/";
@@ -469,21 +470,21 @@ mod tests {
         _mock_final_destination.assert();
     }
 
-    /// Tests a real OAuth flow by calling the live `/oauth/authorize` endpoint.
-    /// Verifies that `initiate_authorization` correctly follows a live 302 redirect and ensures that the response body contains the expected form data and `AuthState` parameter.
-    #[tokio::test]
-    async fn test_initiate_authorization_live() {
-        let api = Api::new();
-        let response = api.initiate_authorization(AUTH_URL).await;
-
-        assert!(response.is_ok());
-        // Url should be of the form https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState=<auth_state>
-        let (url, body) = response.unwrap();
-        assert!(url
-            .contains("https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState="));
-        assert!(body.contains("<form"));
-        assert!(body.contains("AuthState"));
-    }
+    // /// Tests a real OAuth flow by calling the live `/oauth/authorize` endpoint.
+    // /// Verifies that `initiate_authorization` correctly follows a live 302 redirect and ensures that the response body contains the expected form data and `AuthState` parameter.
+    // #[tokio::test]
+    // async fn test_initiate_authorization_live() {
+    //     let api = Api::new();
+    //     let response = api.initiate_authorization(AUTH_URL).await;
+    //
+    //     assert!(response.is_ok());
+    //     // Url should be of the form https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState=<auth_state>
+    //     let (url, body) = response.unwrap();
+    //     assert!(url
+    //         .contains("https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState="));
+    //     assert!(body.contains("<form"));
+    //     assert!(body.contains("AuthState"));
+    // }
 
     #[test]
     fn test_get_auth_state() {

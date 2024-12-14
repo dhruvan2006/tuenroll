@@ -1,17 +1,18 @@
+use crate::api::{self, ApiTrait};
+use async_trait::async_trait;
 use indicatif::{ProgressBar, ProgressStyle};
 use keyring::Entry;
+use mockall::automock;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::io::Write;
 use std::{env, io};
 
-use crate::api::{self, ApiTrait};
-
 /// Represents user credentials, including username, password, and access token.
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Credentials {
-    username: Option<String>,
-    password: Option<String>,
+    pub(crate) username: Option<String>,
+    pub(crate) password: Option<String>,
     pub access_token: Option<String>,
 }
 
@@ -71,6 +72,25 @@ impl Credentials {
     fn is_empty(&self) -> bool {
         self.username.is_none() || self.password.is_none()
     }
+}
+
+#[automock]
+#[async_trait]
+pub trait CredentialManagerTrait<T: ApiTrait + 'static + Sync> {
+    async fn get_valid_credentials<F, G>(
+        &self,
+        loader: F,
+        prompt_fn: G,
+        show_spinner: bool,
+    ) -> Result<Credentials, Box<dyn Error>>
+    where
+        F: Fn(&str) -> Result<Credentials, Box<dyn Error>> + Send + Sync + 'static,
+        G: Fn() -> Credentials + Send + Sync + 'static;
+    async fn validate_stored_token(
+        &self,
+        credentials: &Credentials,
+        url: &str,
+    ) -> Result<bool, Box<dyn Error>>;
 }
 
 pub struct CredentialManager<T: ApiTrait> {
@@ -229,6 +249,31 @@ impl<T: ApiTrait> CredentialManager<T> {
         if let Some(pb) = pb {
             pb.finish_and_clear();
         }
+    }
+}
+
+#[async_trait]
+impl<T: ApiTrait + 'static + Sync> CredentialManagerTrait<T> for CredentialManager<T> {
+    async fn get_valid_credentials<F, G>(
+        &self,
+        loader: F,
+        prompt_fn: G,
+        show_spinner: bool,
+    ) -> Result<Credentials, Box<dyn Error>>
+    where
+        F: Fn(&str) -> Result<Credentials, Box<dyn Error>> + Send,
+        G: Fn() -> Credentials + Send,
+    {
+        self.get_valid_credentials(loader, prompt_fn, show_spinner)
+            .await
+    }
+
+    async fn validate_stored_token(
+        &self,
+        credentials: &Credentials,
+        url: &str,
+    ) -> Result<bool, Box<dyn Error>> {
+        self.validate_stored_token(credentials, url).await
     }
 }
 
