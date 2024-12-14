@@ -412,7 +412,7 @@ fn process_is_running() -> bool {
                 "Process with PID {} is not running. Cleaning up PID store.",
                 stored_pid
             );
-            store_pid(None);
+            store_pid(None, get_config_path);
             false
         }
     }
