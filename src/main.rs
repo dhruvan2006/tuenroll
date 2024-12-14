@@ -87,9 +87,10 @@ async fn main() {
             "Automate your TU Delft exam registrations. Let's get you set up!".bright_cyan()
         );
 
+        download_logo().await;
         // Sets up the registry values to be able to display notifications with a logo
         #[cfg(target_os = "windows")]
-        setup_registry().await;
+        setup_registry();
     }
 
     set_up_logging();
@@ -360,6 +361,37 @@ fn display_logo() {
     );
 }
 
+async fn run_loop<T: ApiTrait>(interval: &u32, manager: &CredentialManager<T>, is_boot: bool) {
+    let _ = run_auto_sign_up(true, manager, is_boot).await;
+
+    let mut start_time = std::time::SystemTime::now();
+    loop {
+        info!("Checking whether time interval is completed");
+        if std::time::SystemTime::now()
+            .duration_since(start_time)
+            .unwrap()
+            .as_secs()
+            >= (interval * 3600).into()
+        {
+            info!("Running auto sign up");
+            match run_auto_sign_up(true, manager, is_boot).await {
+                Ok(_) => info!("Auto sign-up successful."),
+                Err(err) if err == "Invalid credentials" => {
+                    error!("Invalid credentials detected.");
+                    show_notification("Your credentials are invalid. Run tuenroll start again")
+                        .await;
+                    break; // !!! Stops the background process !!!
+                }
+                Err(_) => {
+                    error!("Failure: A network error occurred");
+                }
+            }
+            start_time = std::time::SystemTime::now();
+        }
+        thread::sleep(time::Duration::from_secs(3600));
+    }
+}
+
 fn get_stored_pid<F: Fn(&str, &str) -> PathBuf>(get_config_path: F) -> Option<u32> {
     if let Ok(pid) = std::fs::read_to_string(get_config_path(CONFIG_DIR, PID_FILE)) {
         if let Ok(pid) = serde_json::from_str::<Pid>(&pid) {
@@ -448,13 +480,120 @@ fn process_is_running() -> bool {
     }
 }
 
-fn show_notification(body: &str) {
+async fn get_credentials<T: ApiTrait>(
+    manager: &CredentialManager<T>,
+    is_loop: bool,
+    is_boot: bool,
+) -> Credentials {
+    let credentials;
+
+    loop {
+        let request = manager.get_valid_credentials(
+            Credentials::load_from_keyring,
+            CredentialManager::<T>::prompt_for_credentials,
+            !is_boot,
+        );
+        if let Some(data) = handle_request(is_loop, request.await, is_boot) {
+            credentials = data;
+            if !is_boot {
+                println!("{}", "Credentials validated successfully!".green().bold());
+            }
+            break;
+        }
+    }
+
+    credentials
+}
+
+/// Runs the auto signup fully once
+/// Gets the credentials, the access token
+/// Automatically signs up for all the tests
+/// Prints the result of execution
+async fn run_auto_sign_up<T: ApiTrait>(
+    is_loop: bool,
+    manager: &CredentialManager<T>,
+    is_boot: bool,
+) -> Result<(), String> {
+    // Creds don't exist
+    let credentials = manager
+        .get_valid_credentials(
+            Credentials::load_from_keyring,
+            Credentials::default,
+            !is_loop,
+        )
+        .await;
+    if credentials.is_err() {
+        return Err("Invalid credentials".to_string());
+    }
+    let credentials = credentials.unwrap();
+
+    // Check if creds are valid
+    if !manager
+        .validate_stored_token(&credentials, api::REGISTERED_COURSE_URL)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("Invalid credentials".to_string());
+    }
+
+    let access_token = credentials
+        .access_token
+        .clone()
+        .expect("Access token should be present");
+    let registration_result;
+    let api: Box<dyn ApiTrait> = Box::new(Api::new());
+    loop {
+        let request = api.register_for_tests(
+            &access_token,
+            api::REGISTERED_COURSE_URL,
+            api::TEST_COURSE_URL,
+            api::TEST_REGISTRATION_URL,
+        );
+        if let Some(data) = handle_request(is_loop, request.await, is_boot) {
+            registration_result = data;
+            break;
+        }
+    }
+
+    let course_korte_naam_result: Vec<String> = registration_result
+        .iter()
+        .map(|test_list| test_list.cursus_korte_naam.clone())
+        .collect();
+    if course_korte_naam_result.is_empty() {
+        info!("No exams were enrolled for.");
+    } else {
+        info!(
+            "Successfully enrolled for the following exams: {:?}",
+            course_korte_naam_result
+        );
+        // Send desktop notification
+        for course_name in course_korte_naam_result {
+            show_notification(&format!(
+                "You have been successfully registered for the exam: {}",
+                course_name
+            ))
+            .await;
+        }
+    }
+
+    // Store the last check time
+    store_last_check_time();
+
+    Ok(())
+}
+
+async fn show_notification(body: &str) {
+    download_logo().await;
+
     let mut notification = Notification::new();
 
     let notification = notification.body(body).timeout(5 * 1000); // 5 seconds
 
     #[cfg(target_os = "windows")]
     let notification = notification.app_id(APP_NAME);
+
+    #[cfg(target_os = "linux")]
+    let notification = notification.image_path(get_config_path(CONFIG_DIR, LOGO).to_str().unwrap());
 
     if let Err(e) = notification.show() {
         error!("Failed to show notification: {}", e);
@@ -547,9 +686,22 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "windows")]
-async fn setup_registry() {
-    let logo_url = "https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/logo.png";
+fn setup_registry() {
+    if registry::registry(logo_path.to_str().unwrap(), APP_NAME).is_ok() {
+        info!("Registry succesfully setup.");
+    } else {
+        error!("Registry setup was unsuccesful");
+    }
+}
+
+async fn download_logo() {
     let logo_path = get_config_path(CONFIG_DIR, LOGO);
+
+    if logo_path.exists() {
+        return;
+    }
+
+    let logo_url = "https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/logo.png";
 
     if let Some(parent) = logo_path.parent() {
         std::fs::create_dir_all(parent).expect("Failed to create log directory");
@@ -577,12 +729,6 @@ async fn setup_registry() {
     .expect("Could not write to file.");
 
     info!("Writing logo to file");
-
-    if registry::registry(logo_path.to_str().unwrap(), APP_NAME).is_ok() {
-        info!("Registry succesfully setup.");
-    } else {
-        error!("Registry setup was unsuccesful");
-    }
 }
 
 #[cfg(test)]
