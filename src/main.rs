@@ -454,7 +454,6 @@ fn process_is_running() -> bool {
 }
 
 fn show_notification(body: &str) {
-
     let mut notification = Notification::new();
 
     let notification = notification.body(body).timeout(5 * 1000); // 5 seconds
