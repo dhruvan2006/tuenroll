@@ -12,6 +12,9 @@ It periodically checks for open exam registrations and automatically registers y
   <a href="https://github.com/dhruvan2006/tuenroll/actions">
     <img src="https://img.shields.io/github/actions/workflow/status/dhruvan2006/tuenroll/rust.yml?branch=main&label=Build&logo=github&logoColor=white&color=blue" alt="Build Status" />
   </a>
+  <a href="https://codecov.io/gh/dhruvan2006/tuenroll"> 
+    <img src="https://codecov.io/gh/dhruvan2006/tuenroll/graph/badge.svg?token=NE7S0F73RL"/> 
+  </a>
   <a href="https://opensource.org/licenses/MIT">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License" />
   </a>
