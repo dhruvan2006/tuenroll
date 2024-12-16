@@ -25,3 +25,6 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 uuid = { version = "1.11.0", features = ["v4", "fast-rng", "macro-diagnostics"] }
 async-trait = "0.1.83"
 mockall = "0.13.1"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.10"

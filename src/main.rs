@@ -2,8 +2,9 @@ mod api;
 mod controller;
 mod creds;
 mod models;
-
 use crate::controller::Controller;
+#[cfg(target_os = "windows")]
+mod registry;
 use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
@@ -25,6 +26,10 @@ use std::process::exit;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
+#[cfg(target_os = "windows")]
+use winreg::enums::*;
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -71,6 +76,7 @@ const CONFIG_DIR: &str = ".tuenroll";
 const PID_FILE: &str = "process.json";
 const LAST_CHECK_FILE: &str = "last_check.json";
 const LOG_FILE: &str = "tuenroll.log";
+const LOGO: &str = "logo.png";
 
 #[allow(clippy::zombie_processes)]
 #[tokio::main]
@@ -84,6 +90,11 @@ async fn main() {
             "{}",
             "Automate your TU Delft exam registrations. Let's get you set up!".bright_cyan()
         );
+
+        download_logo().await;
+        // Sets up the registry values to be able to display notifications with a logo
+        #[cfg(target_os = "windows")]
+        setup_registry();
     }
 
     set_up_logging();
@@ -443,13 +454,17 @@ fn process_is_running() -> bool {
 }
 
 fn show_notification(body: &str) {
-    if let Err(e) = Notification::new()
-        .summary("TUEnroll")
-        .body(body)
-        .icon("info")
-        .timeout(5 * 1000) // 5 seconds
-        .show()
-    {
+    let mut notification = Notification::new();
+
+    let notification = notification.body(body).timeout(5 * 1000); // 5 seconds
+
+    #[cfg(target_os = "windows")]
+    let notification = notification.app_id(APP_NAME);
+
+    #[cfg(target_os = "linux")]
+    let notification = notification.image_path(get_config_path(CONFIG_DIR, LOGO).to_str().unwrap());
+
+    if let Err(e) = notification.show() {
         error!("Failed to show notification: {}", e);
     }
 }
@@ -537,6 +552,60 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
     file.write_all(desktop_entry.as_bytes())?;
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn setup_registry() {
+    use registry::RegistryHandler;
+
+    if registry::registry(
+        get_config_path(CONFIG_DIR, LOGO).to_str().unwrap(),
+        APP_NAME,
+        &RegistryHandler::new(RegKey::predef(HKEY_CURRENT_USER)),
+    )
+    .is_ok()
+    {
+        info!("Registry succesfully setup.");
+    } else {
+        error!("Registry setup was unsuccesful");
+    }
+}
+
+async fn download_logo() {
+    let logo_path = get_config_path(CONFIG_DIR, LOGO);
+
+    if logo_path.exists() {
+        return;
+    }
+
+    let logo_url = "https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/logo.png";
+
+    if let Some(parent) = logo_path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create log directory");
+    }
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&logo_path)
+        .unwrap();
+
+    let response = reqwest::get(logo_url)
+        .await
+        .expect("Request did not succeed. Try again later.");
+
+    info!("Downloading logo.");
+
+    std::fs::write(
+        &logo_path,
+        response
+            .bytes()
+            .await
+            .expect("Error occured while downloading image bytes"),
+    )
+    .expect("Could not write to file.");
+
+    info!("Writing logo to file");
 }
 
 #[cfg(test)]
