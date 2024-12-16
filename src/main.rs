@@ -33,7 +33,6 @@ use winreg::enums::*;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
-
 #[derive(Serialize, Deserialize)]
 struct Pid {
     pid: Option<u32>,
@@ -699,7 +698,7 @@ fn setup_registry() {
     if registry::registry(
         get_config_path(CONFIG_DIR, LOGO).to_str().unwrap(),
         APP_NAME,
-        RegistryHandler::new(RegKey::predef(HKEY_CURRENT_USER))
+        &RegistryHandler::new(RegKey::predef(HKEY_CURRENT_USER)),
     )
     .is_ok()
     {
