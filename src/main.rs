@@ -5,7 +5,6 @@ mod models;
 use crate::controller::Controller;
 #[cfg(target_os = "windows")]
 mod registry;
-use crate::api::ApiTrait;
 use ::time::UtcOffset;
 use api::Api;
 use clap::{Parser, Subcommand};
@@ -27,7 +26,6 @@ use std::process::exit;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
-use std::{process::Command, thread, time};
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
 #[cfg(target_os = "windows")]
@@ -367,37 +365,6 @@ fn display_logo() {
     );
 }
 
-async fn run_loop<T: ApiTrait>(interval: &u32, manager: &CredentialManager<T>, is_boot: bool) {
-    let _ = run_auto_sign_up(true, manager, is_boot).await;
-
-    let mut start_time = std::time::SystemTime::now();
-    loop {
-        info!("Checking whether time interval is completed");
-        if std::time::SystemTime::now()
-            .duration_since(start_time)
-            .unwrap()
-            .as_secs()
-            >= (interval * 3600).into()
-        {
-            info!("Running auto sign up");
-            match run_auto_sign_up(true, manager, is_boot).await {
-                Ok(_) => info!("Auto sign-up successful."),
-                Err(err) if err == "Invalid credentials" => {
-                    error!("Invalid credentials detected.");
-                    show_notification("Your credentials are invalid. Run tuenroll start again")
-                        .await;
-                    break; // !!! Stops the background process !!!
-                }
-                Err(_) => {
-                    error!("Failure: A network error occurred");
-                }
-            }
-            start_time = std::time::SystemTime::now();
-        }
-        thread::sleep(time::Duration::from_secs(3600));
-    }
-}
-
 fn get_stored_pid<F: Fn(&str, &str) -> PathBuf>(get_config_path: F) -> Option<u32> {
     if let Ok(pid) = std::fs::read_to_string(get_config_path(CONFIG_DIR, PID_FILE)) {
         if let Ok(pid) = serde_json::from_str::<Pid>(&pid) {
@@ -486,110 +453,7 @@ fn process_is_running() -> bool {
     }
 }
 
-async fn get_credentials<T: ApiTrait>(
-    manager: &CredentialManager<T>,
-    is_loop: bool,
-    is_boot: bool,
-) -> Credentials {
-    let credentials;
-
-    loop {
-        let request = manager.get_valid_credentials(
-            Credentials::load_from_keyring,
-            CredentialManager::<T>::prompt_for_credentials,
-            !is_boot,
-        );
-        if let Some(data) = handle_request(is_loop, request.await, is_boot) {
-            credentials = data;
-            if !is_boot {
-                println!("{}", "Credentials validated successfully!".green().bold());
-            }
-            break;
-        }
-    }
-
-    credentials
-}
-
-/// Runs the auto signup fully once
-/// Gets the credentials, the access token
-/// Automatically signs up for all the tests
-/// Prints the result of execution
-async fn run_auto_sign_up<T: ApiTrait>(
-    is_loop: bool,
-    manager: &CredentialManager<T>,
-    is_boot: bool,
-) -> Result<(), String> {
-    // Creds don't exist
-    let credentials = manager
-        .get_valid_credentials(
-            Credentials::load_from_keyring,
-            Credentials::default,
-            !is_loop,
-        )
-        .await;
-    if credentials.is_err() {
-        return Err("Invalid credentials".to_string());
-    }
-    let credentials = credentials.unwrap();
-
-    // Check if creds are valid
-    if !manager
-        .validate_stored_token(&credentials, api::REGISTERED_COURSE_URL)
-        .await
-        .map_err(|e| e.to_string())?
-    {
-        return Err("Invalid credentials".to_string());
-    }
-
-    let access_token = credentials
-        .access_token
-        .clone()
-        .expect("Access token should be present");
-    let registration_result;
-    let api: Box<dyn ApiTrait> = Box::new(Api::new());
-    loop {
-        let request = api.register_for_tests(
-            &access_token,
-            api::REGISTERED_COURSE_URL,
-            api::TEST_COURSE_URL,
-            api::TEST_REGISTRATION_URL,
-        );
-        if let Some(data) = handle_request(is_loop, request.await, is_boot) {
-            registration_result = data;
-            break;
-        }
-    }
-
-    let course_korte_naam_result: Vec<String> = registration_result
-        .iter()
-        .map(|test_list| test_list.cursus_korte_naam.clone())
-        .collect();
-    if course_korte_naam_result.is_empty() {
-        info!("No exams were enrolled for.");
-    } else {
-        info!(
-            "Successfully enrolled for the following exams: {:?}",
-            course_korte_naam_result
-        );
-        // Send desktop notification
-        for course_name in course_korte_naam_result {
-            show_notification(&format!(
-                "You have been successfully registered for the exam: {}",
-                course_name
-            ))
-            .await;
-        }
-    }
-
-    // Store the last check time
-    store_last_check_time();
-
-    Ok(())
-}
-
-async fn show_notification(body: &str) {
-    download_logo().await;
+fn show_notification(body: &str) {
 
     let mut notification = Notification::new();
 
