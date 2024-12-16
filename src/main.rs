@@ -3,6 +3,7 @@ mod controller;
 mod creds;
 mod models;
 use crate::controller::Controller;
+#[cfg(target_os = "windows")]
 mod registry;
 use crate::api::ApiTrait;
 use ::time::UtcOffset;
@@ -26,6 +27,12 @@ use std::process::exit;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
+use std::{process::Command, thread, time};
+#[cfg(target_os = "windows")]
+use winreg::enums::*;
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
+
 
 #[derive(Serialize, Deserialize)]
 struct Pid {
@@ -106,7 +113,6 @@ async fn main() {
 
     match &cli.command {
         Commands::Run => {
-            show_notification("body").await;
             info!("Starting the 'Run' command execution.");
             let run_controller = Controller::new(Api::new(), exit_fn, manager, false, false);
             let _ = run_controller.get_credentials().await;
@@ -688,9 +694,12 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_os = "windows")]
 fn setup_registry() {
+    use registry::RegistryHandler;
+
     if registry::registry(
         get_config_path(CONFIG_DIR, LOGO).to_str().unwrap(),
         APP_NAME,
+        RegistryHandler::new(RegKey::predef(HKEY_CURRENT_USER))
     )
     .is_ok()
     {
