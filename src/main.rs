@@ -101,6 +101,9 @@ pub enum CredentialError {
 
     #[error("Invalid credentials")]
     InvalidCredentials,
+
+    #[error("Input Error: {0}")]
+    InputError(String),
 }
 
 #[derive(Error, Debug)]
@@ -230,7 +233,7 @@ async fn main() {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status = if manager.has_credentials() {
+            let credentials_status = if manager.has_credentials().unwrap() {
                 "Credentials are saved.".to_string().green()
             } else {
                 "No credentials saved.".to_string().red()
@@ -255,14 +258,14 @@ async fn main() {
         }
         Commands::Change => {
             info!("Changing credentials.");
-            manager.delete_credentials();
+            let _ = manager.delete_credentials();
             let change_controller =
                 Controller::new(Api::new().unwrap(), exit_fn, manager, false, false);
             let _ = change_controller.get_credentials().await;
         }
         Commands::Delete => {
             info!("Deleting credentials.");
-            manager.delete_credentials();
+            let _ = manager.delete_credentials();
             println!("{}", "Success: Credentials deleted!".green().bold());
         }
         Commands::Log => {

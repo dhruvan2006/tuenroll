@@ -188,6 +188,7 @@ mod tests {
         use crate::api::MockApiTrait;
         use crate::controller::Controller;
         use crate::creds::{Credentials, MockCredentialManagerTrait};
+        use crate::{CliError, CredentialError};
 
         /// Test when credential retrieval first fails then success
         #[tokio::test]
@@ -205,7 +206,11 @@ mod tests {
 
             mock_manager
                 .expect_get_valid_credentials()
-                .returning(|_, _, _| Err("Invalid credentials".into()))
+                .returning(|_, _, _| {
+                    Err(CliError::CredentialError(
+                        CredentialError::InvalidCredentials,
+                    ))
+                })
                 .times(2); // simulate two failures
             mock_manager
                 .expect_get_valid_credentials()
@@ -339,11 +344,10 @@ mod tests {
         use crate::controller::Controller;
         use crate::creds::{CredentialManagerTrait, Credentials};
         use crate::models::TestList;
-        use crate::{ApiError, CliError};
+        use crate::{ApiError, CliError, CredentialError};
         use async_trait::async_trait;
         use mockall::mock;
         use mockall::predicate::*;
-        use std::error::Error;
 
         // Mock implementations for testing
         mock! {
@@ -392,16 +396,16 @@ mod tests {
                     loader: F,
                     prompt_fn: G,
                     show_spinner: bool,
-                ) -> Result<Credentials, Box<dyn Error>>
+                ) -> Result<Credentials, CliError>
                 where
-                    F: Fn(&str) -> Result<Credentials, Box<dyn Error>> + Send + Sync + 'static,
-                    G: Fn() -> Credentials + Send + Sync + 'static;
+                    F: Fn(&str) -> Result<Credentials, CredentialError> + Send + Sync + 'static,
+                    G: Fn() -> Result<Credentials, CredentialError> + Send + Sync + 'static;
 
                 async fn validate_stored_token(
                     &self,
                     credentials: &Credentials,
                     url: &str,
-                ) -> Result<bool, Box<dyn Error>>;
+                ) -> Result<bool, ApiError>;
             }
         }
 
@@ -522,7 +526,11 @@ mod tests {
             // `get_valid_credentials()` returns `Err`
             mock_manager
                 .expect_get_valid_credentials()
-                .return_once(move |_, _, _| Err("".into()));
+                .return_once(move |_, _, _| {
+                    Err(CliError::CredentialError(
+                        CredentialError::InvalidCredentials,
+                    ))
+                });
 
             let controller = Controller {
                 api: mock_api,
