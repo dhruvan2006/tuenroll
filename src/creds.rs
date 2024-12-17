@@ -3,11 +3,11 @@ use crate::{ApiError, CliError, CredentialError};
 use async_trait::async_trait;
 use indicatif::{ProgressBar, ProgressStyle};
 use keyring::Entry;
+use log::error;
 use mockall::automock;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::{env, io};
-use log::error;
 
 /// Represents user credentials, including username, password, and access token.
 #[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -245,8 +245,8 @@ impl<T: ApiTrait> CredentialManager<T> {
 
         let pb = ProgressBar::new_spinner();
         match ProgressStyle::default_spinner()
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-                .template("{spinner:.green} {msg}")
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+            .template("{spinner:.green} {msg}")
         {
             Ok(style) => {
                 pb.set_style(style);
