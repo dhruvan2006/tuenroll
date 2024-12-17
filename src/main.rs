@@ -26,6 +26,7 @@ use std::process::exit;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
+use thiserror::Error;
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
 #[cfg(target_os = "windows")]
@@ -77,6 +78,39 @@ const PID_FILE: &str = "process.json";
 const LAST_CHECK_FILE: &str = "last_check.json";
 const LOG_FILE: &str = "tuenroll.log";
 const LOGO: &str = "logo.png";
+
+#[derive(Error, Debug)]
+pub enum ApiError {
+    #[error("Network request failed: {0}")]
+    NetworkError(#[from] reqwest::Error),
+
+    #[error("Invalid response format: {0}")]
+    InvalidResponse(String),
+
+    #[error("Failed to decode JSON: {0}")]
+    JsonDecodeError(#[from] serde_json::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum CredentialError {
+    #[error("Keyring error: {0}")]
+    KeyringError(#[from] keyring::Error),
+
+    #[error("Credentials not found")]
+    CredentialsNotFound,
+
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+}
+
+#[derive(Error, Debug)]
+pub enum CliError {
+    #[error("API Error: {0}")]
+    ApiError(#[from] ApiError),
+
+    #[error("Credentials Error: {0}")]
+    CredentialError(#[from] CredentialError),
+}
 
 #[allow(clippy::zombie_processes)]
 #[tokio::main]
