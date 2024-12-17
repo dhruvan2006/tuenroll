@@ -135,7 +135,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new(Api::new(), APP_NAME.to_string());
+    let manager = CredentialManager::new(Api::new().unwrap(), APP_NAME.to_string());
 
     // Wrap `exit()` function with a function returning `?` instead of experimental `!`
     let exit_fn = |code: i32| {
@@ -145,7 +145,8 @@ async fn main() {
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            let run_controller = Controller::new(Api::new(), exit_fn, manager, false, false);
+            let run_controller =
+                Controller::new(Api::new().unwrap(), exit_fn, manager, false, false);
             let _ = run_controller.get_credentials().await;
             match run_controller.run_auto_sign_up(show_notification).await {
                 Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
@@ -159,7 +160,8 @@ async fn main() {
         Commands::Start { interval, boot } => {
             info!("Starting the 'Start' command execution.");
 
-            let start_controller = Controller::new(Api::new(), exit_fn, manager, true, *boot);
+            let start_controller =
+                Controller::new(Api::new().unwrap(), exit_fn, manager, true, *boot);
 
             // WARNING: Do not have any print statements or the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
@@ -254,7 +256,8 @@ async fn main() {
         Commands::Change => {
             info!("Changing credentials.");
             manager.delete_credentials();
-            let change_controller = Controller::new(Api::new(), exit_fn, manager, false, false);
+            let change_controller =
+                Controller::new(Api::new().unwrap(), exit_fn, manager, false, false);
             let _ = change_controller.get_credentials().await;
         }
         Commands::Delete => {

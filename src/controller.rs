@@ -339,6 +339,7 @@ mod tests {
         use crate::controller::Controller;
         use crate::creds::{CredentialManagerTrait, Credentials};
         use crate::models::TestList;
+        use crate::{ApiError, CliError};
         use async_trait::async_trait;
         use mockall::mock;
         use mockall::predicate::*;
@@ -353,13 +354,13 @@ mod tests {
                     &self,
                     access_token: &str,
                     url: &str,
-                ) -> Result<bool, Box<dyn Error>>;
+                ) -> Result<bool, ApiError>;
 
                 async fn get_access_token(
                     &self,
                     username: &str,
                     password: &str,
-                ) -> Result<String, Box<dyn Error>>;
+                ) -> Result<String, CliError>;
 
                 async fn register_for_tests(
                     &self,
@@ -367,7 +368,7 @@ mod tests {
                     registered_course_url: &str,
                     test_course_url: &str,
                     test_registration_url: &str,
-                ) -> Result<Vec<TestList>, Box<dyn Error>>;
+                ) -> Result<Vec<TestList>, CliError>;
             }
         }
 
@@ -543,6 +544,7 @@ mod tests {
         use crate::controller::Controller;
         use crate::creds::{Credentials, MockCredentialManagerTrait};
         use crate::models::TestList;
+        use crate::{CliError, CredentialError};
         use std::time::Duration;
 
         /// Tests that `run_loop()` successfully calls `run_auto_sign_up()` at intervals by asserting notifications
@@ -616,7 +618,11 @@ mod tests {
 
             api_mock
                 .expect_register_for_tests()
-                .returning(|_, _, _, _| Err("Invalid credentials".into()));
+                .returning(|_, _, _, _| {
+                    Err(CliError::CredentialError(
+                        CredentialError::InvalidCredentials,
+                    ))
+                });
 
             let controller = Controller::new(api_mock, |_| {}, manager_mock, true, true);
 
