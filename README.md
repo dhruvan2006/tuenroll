@@ -5,7 +5,7 @@
 It periodically checks for open exam registrations and automatically registers you when new exams are available.
 
 <p align="center">
-  <img src="logo.png" alt="TUEnroll Logo" />
+  <img src="logo_full.png" alt="TUEnroll Logo" />
 </p>
 
 <p align="center">
