@@ -148,23 +148,40 @@ async fn main() {
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            let run_controller =
-                Controller::new(Api::new().unwrap(), exit_fn, manager, false, false);
+            let mut run_controller = Controller::new(
+                Api::new().unwrap(),
+                exit_fn,
+                manager,
+                false,
+                false,
+                |body: &str| {
+                    show_notification(body);
+                },
+            );
             let _ = run_controller.get_credentials().await;
-            match run_controller.run_auto_sign_up(show_notification).await {
+            match run_controller.run_auto_sign_up().await {
                 Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
-                Err(err) if err == "Invalid credentials" => {
-                    // Invalid credentials should definitely never happen
-                    println!("Invalid credentials detected")
-                }
-                Err(_) => println!("{}", "Failure: A network error occured".red().bold()),
+                // Err(err) if err == "Invalid credentials" => {
+                //     // Invalid credentials should definitely never happen
+                //     println!("Invalid credentials detected")
+                // }
+                // Err(_) => println!("{}", "Failure: A network error occured".red().bold()),
+                Err(_) => todo!(),
             }
         }
         Commands::Start { interval, boot } => {
             info!("Starting the 'Start' command execution.");
 
-            let start_controller =
-                Controller::new(Api::new().unwrap(), exit_fn, manager, true, *boot);
+            let mut start_controller = Controller::new(
+                Api::new().unwrap(),
+                exit_fn,
+                manager,
+                true,
+                *boot,
+                |body: &str| {
+                    show_notification(body);
+                },
+            );
 
             // WARNING: Do not have any print statements or the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
@@ -204,9 +221,7 @@ async fn main() {
                 return;
             } else {
                 info!("Daemon process enabled: starting loop");
-                start_controller
-                    .run_loop(&mut show_notification, interval * 3600, 3600)
-                    .await;
+                start_controller.run_loop(10, 5).await;
             }
         }
         Commands::Stop => {
@@ -259,8 +274,16 @@ async fn main() {
         Commands::Change => {
             info!("Changing credentials.");
             let _ = manager.delete_credentials();
-            let change_controller =
-                Controller::new(Api::new().unwrap(), exit_fn, manager, false, false);
+            let mut change_controller = Controller::new(
+                Api::new().unwrap(),
+                exit_fn,
+                manager,
+                false,
+                false,
+                |body: &str| {
+                    show_notification(body);
+                },
+            );
             let _ = change_controller.get_credentials().await;
         }
         Commands::Delete => {

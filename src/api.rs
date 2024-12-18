@@ -127,7 +127,7 @@ impl Api {
         Ok((url, body))
     }
 
-    fn get_auth_state(body: &str) -> Result<String, ApiError> {
+    fn get_auth_state(body: &str) -> Result<String, CliError> {
         let document = scraper::Html::parse_document(body);
 
         let form_selector = scraper::Selector::parse("form[name='f']")
@@ -136,7 +136,7 @@ impl Api {
         let form_element = document
             .select(&form_selector)
             .next()
-            .ok_or_else(|| ApiError::InvalidResponse("Form element not found".to_string()))?;
+            .ok_or_else(|| CliError::CredentialError(CredentialError::InvalidCredentials))?;
 
         let auth_state_selector =
             scraper::Selector::parse("input[name='AuthState']").map_err(|e| {
@@ -152,7 +152,7 @@ impl Api {
             .value()
             .attr("value")
             .map(|v| v.to_string())
-            .ok_or_else(|| ApiError::InvalidResponse("AuthState value not found".to_string()))
+            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("AuthState value not found".to_string())))
     }
 
     async fn submit_login_form(
@@ -197,21 +197,21 @@ impl Api {
         ))
     }
 
-    fn extract_saml_response(body: &str) -> Result<(String, String, String), ApiError> {
+    fn extract_saml_response(body: &str) -> Result<(String, String, String), CliError> {
         let document = scraper::Html::parse_document(body);
 
         let form_selector = scraper::Selector::parse("form")
-            .map_err(|e| ApiError::InvalidResponse(format!("Form selector parse error: {}", e)))?;
+            .map_err(|e| CliError::ApiError(ApiError::InvalidResponse(format!("Form selector parse error: {}", e))))?;
 
         let form_element = document
             .select(&form_selector)
             .next()
-            .ok_or_else(|| ApiError::InvalidResponse("Form element not found".to_string()))?;
+            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("Form element not found".to_string())))?;
 
         let form_action = form_element
             .value()
             .attr("action")
-            .ok_or_else(|| ApiError::InvalidResponse("Form action not found".to_string()))?
+            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("Form action not found".to_string())))?
             .to_string();
 
         let saml_response = Self::extract_input_value(&form_element, "input[name='SAMLResponse']")?;
@@ -223,20 +223,20 @@ impl Api {
     fn extract_input_value(
         element: &scraper::ElementRef,
         selector_str: &str,
-    ) -> Result<String, ApiError> {
+    ) -> Result<String, CliError> {
         let selector = scraper::Selector::parse(selector_str)
-            .map_err(|e| ApiError::InvalidResponse(format!("Selector parse error: {}", e)))?;
+            .map_err(|e| CliError::ApiError(ApiError::InvalidResponse(format!("Selector parse error: {}", e))))?;
 
         let input_element = element
             .select(&selector)
             .next()
-            .ok_or_else(|| ApiError::InvalidResponse("Element not found".to_string()))?;
+            .ok_or_else(|| CliError::CredentialError(CredentialError::InvalidCredentials))?;
 
         input_element
             .value()
             .attr("value")
             .map(|v| v.to_string())
-            .ok_or_else(|| ApiError::InvalidResponse("Attribute 'value' not found".to_string()))
+            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("Attribute 'value' not found".to_string())))
     }
 
     async fn submit_saml_response(
@@ -695,10 +695,9 @@ mod tests {
         let api = Api::new().expect("Failed to start reqwest Client");
         let result = api.get_course_list("test-access-token", &url).await;
         assert!(result.is_err());
-        if let Err(CliError::CredentialError(CredentialError::InvalidCredentials)) = result {
-            // The test passes if the error is `InvalidCredentials`
-        } else {
-            panic!("Expected error to be InvalidCredentials");
+        match result.unwrap_err() {
+            CliError::CredentialError(CredentialError::InvalidCredentials) => {}
+            _ => panic!("Expected InvalidCredentials error"),
         }
     }
 
