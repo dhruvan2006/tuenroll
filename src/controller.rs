@@ -73,8 +73,8 @@ impl<
                 CredentialManager::<T>::prompt_for_credentials,
                 !self.is_boot,
             );
-            if let Some(data) = self.handle_request(request.await, false, false) {
-                // don't exit or send notif
+            // don't exit or send notif
+            if let Some(data) = self.handle_request(request.await, !self.is_loop, false) {
                 credentials = data;
                 if !self.is_boot {
                     println!("{}", "Credentials validated successfully!".green().bold());

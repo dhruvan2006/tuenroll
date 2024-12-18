@@ -81,25 +81,25 @@ const LOGO: &str = "logo.png";
 
 #[derive(Error, Debug)]
 pub enum ApiError {
-    #[error("Network request failed: {0}")]
+    #[error("Network request failed. Please try again.")]
     NetworkError(#[from] reqwest::Error),
 
-    #[error("Invalid response format: {0}")]
+    #[error("Invalid response received: {0}")]
     InvalidResponse(String),
 
-    #[error("Failed to decode JSON: {0}")]
+    #[error("Failed to process the response: {0}")]
     JsonDecodeError(#[from] serde_json::Error),
 }
 
 #[derive(Error, Debug)]
 pub enum CredentialError {
-    #[error("Keyring error: {0}")]
+    #[error("Error accessing credentials: {0}")]
     KeyringError(#[from] keyring::Error),
 
-    #[error("Credentials not found")]
+    #[error("Credentials not found. Please check your login details.")]
     CredentialsNotFound,
 
-    #[error("Invalid credentials")]
+    #[error("Invalid credentials. Please check your username and password.")]
     InvalidCredentials,
 
     #[error("Input Error: {0}")]
