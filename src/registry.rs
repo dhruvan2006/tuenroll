@@ -1,14 +1,10 @@
+use std::error::Error;
 use winreg::enums::*;
 use winreg::RegKey;
 
 pub trait RegistryHandlerTrait {
-    fn create_subkey(&self, path: &str) -> Result<(), Box<dyn std::error::Error>>;
-    fn set_value(
-        &self,
-        path: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    fn create_subkey(&self, path: &str) -> Result<(), Box<dyn Error>>;
+    fn set_value(&self, path: &str, key: &str, value: &str) -> Result<(), Box<dyn Error>>;
 }
 
 pub struct RegistryHandler {
@@ -22,17 +18,12 @@ impl RegistryHandler {
 }
 
 impl RegistryHandlerTrait for RegistryHandler {
-    fn create_subkey(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn create_subkey(&self, path: &str) -> Result<(), Box<dyn Error>> {
         self.hkcu.create_subkey(path)?;
         Ok(())
     }
 
-    fn set_value(
-        &self,
-        path: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn set_value(&self, path: &str, key: &str, value: &str) -> Result<(), Box<dyn Error>> {
         let subkey = self.hkcu.open_subkey_with_flags(path, KEY_WRITE)?;
         subkey.set_value(key, &value)?;
         Ok(())
@@ -43,7 +34,7 @@ pub fn registry(
     logo_path: &str,
     app_name: &str,
     handler: &impl RegistryHandlerTrait,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     // Define variables for the registry entry
     let aumid = app_name;
     let display_name = app_name;
@@ -51,17 +42,11 @@ pub fn registry(
     let path = format!("Software\\Classes\\AppUserModelId\\{}", aumid);
 
     // Open the registry key (or create it if it doesn't exist)
-    handler
-        .create_subkey(&path)
-        .expect("Could not write to registry");
+    handler.create_subkey(&path)?;
 
     // Set registry values
-    handler
-        .set_value(&path, "DisplayName", display_name)
-        .expect("Could not write DisplayName to registry");
-    handler
-        .set_value(&path, "IconUri", icon_uri)
-        .expect("Could not write IconUri to registry");
+    handler.set_value(&path, "DisplayName", display_name)?;
+    handler.set_value(&path, "IconUri", icon_uri)?;
 
     Ok(())
 }
@@ -69,6 +54,7 @@ pub fn registry(
 #[allow(dead_code)]
 mod tests {
     use std::collections::HashMap;
+    use std::error::Error;
     use std::sync::Mutex;
 
     use super::*;
@@ -86,18 +72,13 @@ mod tests {
     }
 
     impl RegistryHandlerTrait for MockRegistryHandler {
-        fn create_subkey(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        fn create_subkey(&self, path: &str) -> Result<(), Box<dyn Error>> {
             let mut data = self.data.lock().unwrap();
             data.entry(path.to_string()).or_default();
             Ok(())
         }
 
-        fn set_value(
-            &self,
-            path: &str,
-            key: &str,
-            value: &str,
-        ) -> Result<(), Box<dyn std::error::Error>> {
+        fn set_value(&self, path: &str, key: &str, value: &str) -> Result<(), Box<dyn Error>> {
             let mut data = self.data.lock().unwrap();
             //let mut data = data.entry(path)
             let map = data.get_mut(path).unwrap();

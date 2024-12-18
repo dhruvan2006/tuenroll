@@ -16,8 +16,6 @@ use serde::{Deserialize, Serialize};
 use simplelog::*;
 use std::env;
 #[cfg(not(target_os = "windows"))]
-use std::io;
-#[cfg(not(target_os = "windows"))]
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -26,6 +24,7 @@ use std::process::exit;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
+use thiserror::Error;
 #[cfg(target_os = "windows")]
 use winreg::enums::*;
 #[cfg(target_os = "windows")]
@@ -78,6 +77,51 @@ const LAST_CHECK_FILE: &str = "last_check.json";
 const LOG_FILE: &str = "tuenroll.log";
 const LOGO: &str = "logo.png";
 
+#[derive(Error, Debug)]
+pub enum ApiError {
+    #[error("Network request failed. Please try again.")]
+    NetworkError(#[from] reqwest::Error),
+
+    #[error("Invalid response received: {0}")]
+    InvalidResponse(String),
+
+    #[error("Failed to process the response: {0}")]
+    JsonDecodeError(#[from] serde_json::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum CredentialError {
+    #[error("Error accessing credentials: {0}")]
+    KeyringError(#[from] keyring::Error),
+
+    #[error("Credentials not found. Please check your login details.")]
+    CredentialsNotFound,
+
+    #[error("Invalid credentials. Please check your username and password.")]
+    InvalidCredentials,
+
+    #[error("Input Error: {0}")]
+    InputError(String),
+}
+
+#[derive(Error, Debug)]
+pub enum CliError {
+    #[error("API Error: {0}")]
+    ApiError(#[from] ApiError),
+
+    #[error("Credentials Error: {0}")]
+    CredentialError(#[from] CredentialError),
+
+    #[error("Configuration Error: {0}")]
+    ConfigError(String),
+
+    #[error("IO Error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("JSON Error: {0}")]
+    JsonError(#[from] serde_json::Error),
+}
+
 #[allow(clippy::zombie_processes)]
 #[tokio::main]
 async fn main() {
@@ -99,9 +143,16 @@ async fn main() {
             }
         }
     }
+  
+    if let Err(e) = run().await {
+        error!("{}", e);
+        println!("{}", e.to_string().red().bold());
+    }
+}
 
+async fn run() -> Result<(), CliError> {
     // Check if it's the first setup
-    if is_first_setup(dirs::home_dir) {
+    if is_first_setup(dirs::home_dir)? {
         display_logo();
 
         println!("{}", "Welcome to TUEnroll CLI!".bright_cyan());
@@ -110,17 +161,17 @@ async fn main() {
             "Automate your TU Delft exam registrations. Let's get you set up!".bright_cyan()
         );
 
-        download_logo().await;
+        download_logo().await?;
         // Sets up the registry values to be able to display notifications with a logo
         #[cfg(target_os = "windows")]
-        setup_registry();
+        setup_registry()?;
     }
 
-    set_up_logging();
+    set_up_logging()?;
 
     let cli = Cli::parse();
 
-    let manager = CredentialManager::new(Api::new(), APP_NAME.to_string());
+    let manager = CredentialManager::new(Api::new()?, APP_NAME.to_string());
 
     // Wrap `exit()` function with a function returning `?` instead of experimental `!`
     let exit_fn = |code: i32| {
@@ -130,41 +181,46 @@ async fn main() {
     match &cli.command {
         Commands::Run => {
             info!("Starting the 'Run' command execution.");
-            let run_controller = Controller::new(Api::new(), exit_fn, manager, false, false);
+            let mut run_controller =
+                Controller::new(Api::new()?, exit_fn, manager, false, false, |body: &str| {
+                    show_notification(body);
+                });
             let _ = run_controller.get_credentials().await;
-            match run_controller.run_auto_sign_up(show_notification).await {
-                Ok(()) => println!("{}", "Success: Exam check ran.".green().bold()),
-                Err(err) if err == "Invalid credentials" => {
-                    // Invalid credentials should definitely never happen
-                    println!("Invalid credentials detected")
+            match run_controller.run_auto_sign_up().await {
+                Ok(()) => {
+                    println!("{}", "Success: Exam check ran.".green().bold());
+                    Ok(())
                 }
-                Err(_) => println!("{}", "Failure: A network error occured".red().bold()),
+                Err(e) => Err(e),
             }
         }
         Commands::Start { interval, boot } => {
             info!("Starting the 'Start' command execution.");
 
-            let start_controller = Controller::new(Api::new(), exit_fn, manager, true, *boot);
+            let mut start_controller =
+                Controller::new(Api::new()?, exit_fn, manager, true, *boot, |body: &str| {
+                    show_notification(body);
+                });
 
             // WARNING: Do not have any print statements or the command and process will stop working detached
             if env::var("DAEMONIZED").err().is_some() {
                 let _ = start_controller.get_credentials().await;
 
                 // Checks whether a process was running, if not don't run the program
-                if *boot && get_stored_pid(get_config_path).is_none() {
+                if *boot && get_stored_pid(get_config_path)?.is_none() {
                     info!("Boot is enabled but no process was running. Stopping execution");
-                    return;
+                    return Ok(()); // return
                 } else if !boot {
                     info!("Setting boot up");
                     setup_run_on_boot(interval);
                 }
                 //  Check that no other process is running
-                if process_is_running() {
+                if process_is_running()? {
                     println!("Another process is already running");
-                    return;
+                    return Ok(()); //return
                 }
                 info!("Spawning daemon process with interval: {}", interval);
-                let mut command = Command::new(env::current_exe().unwrap());
+                let mut command = Command::new(env::current_exe()?);
 
                 command
                     .args(["start", format!("--interval={}", interval).as_str()])
@@ -173,27 +229,26 @@ async fn main() {
                 #[cfg(target_os = "windows")]
                 command.creation_flags(0x08000000);
 
-                let child = command.spawn().unwrap();
+                let child = command.spawn()?;
 
-                store_pid(Some(child.id()), get_config_path);
+                store_pid(Some(child.id()), get_config_path)?;
                 //println!("{}", "Success: Service started.".green().bold());
                 info!("Daemon process started with PID: {}", child.id());
                 if !boot {
                     println!("Command 'Start' was successfully started");
                 }
-                return;
             } else {
                 info!("Daemon process enabled: starting loop");
-                start_controller
-                    .run_loop(&mut show_notification, interval * 3600, 3600)
-                    .await;
+                start_controller.run_loop(*interval * 3600, 3600).await;
             }
+            Ok(()) // return
         }
         Commands::Stop => {
             info!("Stopping the cli.");
-            let stopped_process = stop_program();
+            let stopped_process = stop_program()?;
             if stopped_process.is_none() {
-                eprintln!("{}", "Error: No running service to stop.".red());
+                eprintln!("{}", "No running service to stop.".red().bold());
+                Ok(())
             } else {
                 println!(
                     "{}",
@@ -201,19 +256,20 @@ async fn main() {
                         .green()
                         .bold()
                 );
+                Ok(())
             }
         }
         Commands::Status => {
             info!("Fetching the current status.");
             let process_status = if let Some(Some(pid)) =
-                process_is_running().then(|| get_stored_pid(get_config_path))
+                process_is_running()?.then(|| get_stored_pid(get_config_path).ok()?)
             {
                 format!("Running (PID: {}).", pid).green()
             } else {
                 "Not running.".to_string().red()
             };
 
-            let credentials_status = if manager.has_credentials() {
+            let credentials_status = if manager.has_credentials()? {
                 "Credentials are saved.".to_string().green()
             } else {
                 "No credentials saved.".to_string().red()
@@ -224,7 +280,7 @@ async fn main() {
                 Err(_) => "Network is down.".red(),
             };
 
-            let last_check_status = match get_last_check_time(get_config_path) {
+            let last_check_status = match get_last_check_time(get_config_path)? {
                 Some(time) => time.green(),
                 None => "No previous checks recorded.".to_string().red(),
             };
@@ -235,115 +291,125 @@ async fn main() {
             println!("  Network: {}", network_status);
             println!("  Last check: {}", last_check_status);
             info!("Displayed the current status.");
+            Ok(())
         }
         Commands::Change => {
             info!("Changing credentials.");
-            manager.delete_credentials();
-            let change_controller = Controller::new(Api::new(), exit_fn, manager, false, false);
+            manager.delete_credentials()?;
+            let mut change_controller =
+                Controller::new(Api::new()?, exit_fn, manager, false, false, |body: &str| {
+                    show_notification(body);
+                });
             let _ = change_controller.get_credentials().await;
+            Ok(())
         }
         Commands::Delete => {
             info!("Deleting credentials.");
-            manager.delete_credentials();
+            manager.delete_credentials()?;
             println!("{}", "Success: Credentials deleted!".green().bold());
+            Ok(())
         }
         Commands::Log => {
             info!("Displaying the logs.");
-            let log_path = get_config_path(CONFIG_DIR, LOG_FILE);
+            let log_path = get_config_path(CONFIG_DIR, LOG_FILE)?;
             match std::fs::read_to_string(log_path) {
                 Ok(log_contents) => {
                     print!("{}", log_contents);
                     info!("Displayed the logs successfully.");
                 }
                 Err(e) => {
-                    eprintln!("{}", format!("Error: Could not read log file: {}", e).red());
+                    eprintln!("{}", format!("Could not read log file: {}", e).red().bold());
                     error!("Error while printing the logs");
                 }
             }
+            Ok(())
         }
     }
 }
 
-fn is_first_setup<F: Fn() -> Option<PathBuf>>(home_dir_fn: F) -> bool {
+fn is_first_setup<F: Fn() -> Option<PathBuf>>(home_dir_fn: F) -> Result<bool, CliError> {
     let config_path = home_dir_fn()
-        .expect("Unable to find home directory")
+        .ok_or_else(|| CliError::ConfigError("Unable to find home directory".to_string()))?
         .join(CONFIG_DIR);
 
     if !config_path.exists() {
-        return true; // First setup
+        return Ok(true); // First setup
     }
-    false // Not the first setup
+    Ok(false) // Not the first setup
 }
 
-fn set_up_logging() {
-    let log_path = get_config_path(CONFIG_DIR, LOG_FILE);
-    if let Some(parent) = log_path.parent() {
-        std::fs::create_dir_all(parent).expect("Failed to create log directory");
-    }
+fn set_up_logging() -> Result<(), CliError> {
+    let log_path = get_config_path(CONFIG_DIR, LOG_FILE)?;
+    let parent = log_path
+        .parent()
+        .ok_or_else(|| CliError::ConfigError("No parent directory".to_string()))?;
+    std::fs::create_dir_all(parent)?;
+
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_path)
-        .unwrap();
+        .open(log_path)?;
 
     // Current time in local timezone
     let offset = chrono::Local::now().offset().local_minus_utc();
+
+    let time_offset = UtcOffset::from_whole_seconds(offset)
+        .map_err(|_| CliError::ConfigError("Failed to create time offset".to_string()))?;
 
     let config = ConfigBuilder::new()
         .set_time_format_custom(simplelog::format_description!(
             "[year]-[month]-[day] [hour]:[minute]:[second]"
         ))
-        .set_time_offset(UtcOffset::from_whole_seconds(offset).unwrap())
+        .set_time_offset(time_offset)
         .build();
 
-    CombinedLogger::init(vec![
-        // TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Always),
-        WriteLogger::new(LevelFilter::Info, config, log_file),
-    ])
-    .expect("Failed to initialize logger");
+    CombinedLogger::init(vec![WriteLogger::new(LevelFilter::Info, config, log_file)])
+        .map_err(|e| CliError::ConfigError(format!("Failed to initialize logger: {}", e)))?;
 
-    // info!("Initialized the logger");
+    Ok(())
 }
 
-async fn check_network_status(url: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn check_network_status(url: &str) -> Result<(), ApiError> {
     let response = reqwest::get(url).await?;
 
     if response.status().is_server_error() {
-        return Err(format!("Server Error: HTTP {}", response.status()).into());
+        return Err(ApiError::InvalidResponse(format!(
+            "Server Error: HTTP {}",
+            response.status()
+        )));
     }
 
     Ok(())
 }
 
-fn store_last_check_time<F: Fn(&str, &str) -> PathBuf>(get_config_path: F) {
+fn store_last_check_time<F: Fn(&str, &str) -> Result<PathBuf, CliError>>(
+    get_config_path: F,
+) -> Result<(), CliError> {
     let last_check_time = chrono::Utc::now().to_rfc3339();
-    let path = get_config_path(CONFIG_DIR, LAST_CHECK_FILE);
+    let path = get_config_path(CONFIG_DIR, LAST_CHECK_FILE)?;
     let data = serde_json::json!({ "last_check": last_check_time });
 
-    match std::fs::write(path, serde_json::to_string(&data).unwrap()) {
-        Ok(_) => info!("Last check time saved."),
-        Err(e) => error!("Failed to save last check time: {}", e),
-    }
+    let json_string = serde_json::to_string(&data)?;
+    std::fs::write(path, json_string)?;
+
+    Ok(())
 }
 
-fn get_last_check_time<F: Fn(&str, &str) -> PathBuf>(get_config_path: F) -> Option<String> {
-    let path = get_config_path(CONFIG_DIR, LAST_CHECK_FILE);
+fn get_last_check_time<F: Fn(&str, &str) -> Result<PathBuf, CliError>>(
+    get_config_path: F,
+) -> Result<Option<String>, CliError> {
+    let path = get_config_path(CONFIG_DIR, LAST_CHECK_FILE)?;
 
-    if let Ok(content) = std::fs::read_to_string(path) {
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(last_check) = data.get("last_check") {
-                if let Some(last_check_str) = last_check.as_str() {
-                    // Parse the stored time and calculate the difference
-                    if let Ok(last_check_time) =
-                        chrono::DateTime::parse_from_rfc3339(last_check_str)
-                    {
-                        return Some(time_ago(last_check_time));
-                    }
-                }
-            }
+    let content = std::fs::read_to_string(path)?;
+    let data = serde_json::from_str::<serde_json::Value>(&content)?;
+
+    if let Some(last_check) = data.get("last_check").and_then(|v| v.as_str()) {
+        // Parse the stored time and calculate the difference
+        if let Ok(last_check_time) = chrono::DateTime::parse_from_rfc3339(last_check) {
+            return Ok(Some(time_ago(last_check_time)));
         }
     }
-    None
+    Ok(None)
 }
 
 /// Helper function to calculate time difference
@@ -384,66 +450,65 @@ fn display_logo() {
     );
 }
 
-fn get_stored_pid<F: Fn(&str, &str) -> PathBuf>(get_config_path: F) -> Option<u32> {
-    if let Ok(pid) = std::fs::read_to_string(get_config_path(CONFIG_DIR, PID_FILE)) {
-        if let Ok(pid) = serde_json::from_str::<Pid>(&pid) {
-            return pid.pid;
-        }
+fn get_stored_pid<F: Fn(&str, &str) -> Result<PathBuf, CliError>>(
+    get_config_path: F,
+) -> Result<Option<u32>, CliError> {
+    let path = get_config_path(CONFIG_DIR, PID_FILE)?;
+    if !path.exists() {
+        return Ok(None); // Return None if the file doesn't exist
     }
-    None
+    let pid_content = std::fs::read_to_string(path)?;
+    let pid: Pid = serde_json::from_str(&pid_content)?;
+    Ok(pid.pid)
 }
 
-fn stop_program() -> Option<u32> {
-    let pid = get_stored_pid(get_config_path);
-    pid?;
-    let pid = pid.unwrap();
-
+fn stop_program() -> Result<Option<u32>, CliError> {
+    let pid = match get_stored_pid(get_config_path)? {
+        Some(pid) => pid,
+        None => return Ok(None),
+    };
     info!("Attempting to stop the process with PID: {}", pid);
 
     #[cfg(target_os = "windows")]
-    let kill = Command::new("taskkill")
+    Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
         .stdout(Stdio::null()) // Suppress standard output
         .stderr(Stdio::null()) // Suppress standard error
-        .spawn();
+        .spawn()?;
 
     #[cfg(not(target_os = "windows"))]
-    let kill = Command::new("kill").arg(pid.to_string()).spawn();
-
-    if let Err(e) = kill {
-        error!("Failed to stop process with PID {}: {}", pid, e);
-        return None;
-    }
+    Command::new("kill").arg(pid.to_string()).spawn()?;
 
     info!("Successfully stopped the process with PID: {}", pid);
-    store_pid(None, get_config_path);
-    Some(pid)
+    store_pid(None, get_config_path)?;
+    Ok(Some(pid))
 }
 
-fn process_is_running() -> bool {
-    let stored_pid = get_stored_pid(get_config_path);
-    if stored_pid.is_none() {
-        return false;
+fn process_is_running() -> Result<bool, CliError> {
+    let stored_pid = match get_stored_pid(get_config_path) {
+        Ok(Some(pid)) => pid,
+        Ok(None) => return Ok(false),
+        Err(e) => return Err(e),
     };
 
-    let stored_pid = stored_pid.unwrap().to_string();
+    let stored_pid = stored_pid.to_string();
 
     #[cfg(not(target_os = "windows"))]
     {
         let process = Command::new("ps")
             .args(["-p", stored_pid.as_str()])
             .output()
-            .expect("Error occured when running ps -p $PID");
+            .map_err(CliError::IoError)?;
         if process.status.success() {
             info!("Process with PID {} is running.", stored_pid);
-            true
+            Ok(true)
         } else {
             warn!(
                 "Process with PID {} is not running. Cleaning up PID store.",
                 stored_pid
             );
-            store_pid(None, get_config_path);
-            false
+            store_pid(None, get_config_path)?;
+            Ok(false)
         }
     }
 
@@ -453,21 +518,20 @@ fn process_is_running() -> bool {
             .arg("/FI")
             .raw_arg(format!("\"PID eq {}\"", stored_pid).as_str())
             .output()
-            .expect("Error occured when running tasklist /FI \"PID eq $pid\"");
+            .map_err(CliError::IoError)?;
 
-        if String::from_utf8(process.stdout)
-            .unwrap()
-            .contains("No tasks are running")
-        {
+        let output = String::from_utf8(process.stdout)
+            .map_err(|e| CliError::ConfigError(format!("Invalid UTF-8 output: {}", e)))?;
+        if output.contains("No tasks are running") {
             warn!(
                 "Process with PID {} is not running. Cleaning up PID store.",
                 stored_pid
             );
-            store_pid(None, get_config_path);
-            false
+            store_pid(None, get_config_path)?;
+            Ok(false)
         } else {
             info!("Process with PID {} is running.", stored_pid);
-            true
+            Ok(true)
         }
     }
 }
@@ -481,7 +545,21 @@ fn show_notification(body: &str) {
     let notification = notification.app_id(APP_NAME);
 
     #[cfg(target_os = "linux")]
-    let notification = notification.image_path(get_config_path(CONFIG_DIR, LOGO).to_str().unwrap());
+    {
+        let logo_path_result = get_config_path(CONFIG_DIR, LOGO);
+        if let Ok(path) = logo_path_result {
+            if let Some(str_path) = path.to_str() {
+                notification.image_path(str_path);
+            } else {
+                error!("Invalid path for logo: {}", path.display());
+            }
+        } else {
+            error!(
+                "Failed to get config path for logo: {}",
+                logo_path_result.unwrap_err()
+            );
+        }
+    }
 
     if let Err(e) = notification.show() {
         error!("Failed to show notification: {}", e);
@@ -490,19 +568,20 @@ fn show_notification(body: &str) {
 
 /// Returns the path to the user's home directory, combined with a hidden directory `config_dir`
 /// and the config file `config_file`
-fn get_config_path(config_dir: &str, config_file: &str) -> std::path::PathBuf {
-    if let Some(home_dir) = dirs::home_dir() {
-        home_dir.join(config_dir).join(config_file)
-    } else {
-        // TODO: Better error handling
-        panic!("Could not find home directory.");
-    }
+fn get_config_path(config_dir: &str, config_file: &str) -> Result<PathBuf, CliError> {
+    dirs::home_dir()
+        .ok_or_else(|| CliError::ConfigError("Could not find home directory.".to_string()))
+        .map(|home_dir| home_dir.join(config_dir).join(config_file))
 }
 
-fn store_pid<F: Fn(&str, &str) -> PathBuf>(process_id: Option<u32>, get_config_path: F) {
+fn store_pid<F: Fn(&str, &str) -> Result<PathBuf, CliError>>(
+    process_id: Option<u32>,
+    get_config_path: F,
+) -> Result<(), CliError> {
     let pid = Pid { pid: process_id };
-    let pid = serde_json::to_string(&pid).expect("Failed to serialise PID");
-    let _ = std::fs::write(get_config_path(CONFIG_DIR, PID_FILE), pid);
+    let pid = serde_json::to_string(&pid)?;
+    std::fs::write(get_config_path(CONFIG_DIR, PID_FILE)?, pid)?;
+    Ok(())
 }
 
 /// Sets up the program to run on boot
@@ -516,17 +595,19 @@ fn setup_run_on_boot(interval: &u32) {
     if result.is_ok() {
         info!("Boot setup was succesful");
     } else {
-        error!("Boot setup encountered an error")
+        error!("Boot setup encountered an error: {:?}", result.err())
     }
 }
 
 #[cfg(target_os = "windows")]
-fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
+fn run_on_boot_windows(interval: &u32) -> Result<(), CliError> {
     let exe_path = env::current_exe()?;
     // Path to the startup folder
     let startup_path = format!(
         r"{}\Microsoft\Windows\Start Menu\Programs\Startup\{}.lnk",
-        env::var("APPDATA")?,
+        env::var("APPDATA").map_err(|_| CliError::ConfigError(
+            "APPDATA environment variable not found".to_string()
+        ))?,
         APP_NAME
     );
 
@@ -548,16 +629,15 @@ fn run_on_boot_windows(interval: &u32) -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[cfg(not(target_os = "windows"))]
-fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
+fn run_on_boot_linux(interval: &u32) -> Result<(), CliError> {
     let exe_path = env::current_exe()?;
     let exe_path = exe_path.to_string_lossy();
 
     let autostart_dir = dirs::config_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Config directory not found"))
-        .expect("Error occured")
+        .ok_or_else(|| CliError::ConfigError("Config directory not found".to_string()))?
         .join("autostart");
 
-    std::fs::create_dir_all(&autostart_dir).expect("Couldn't create directory");
+    std::fs::create_dir_all(&autostart_dir)?;
 
     // Create the .desktop file
     let desktop_file_path = autostart_dir.join(APP_NAME.to_string() + ".desktop");
@@ -574,11 +654,16 @@ fn run_on_boot_linux(interval: &u32) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "windows")]
-fn setup_registry() {
+fn setup_registry() -> Result<(), CliError> {
     use registry::RegistryHandler;
 
+    let config_path = get_config_path(CONFIG_DIR, LOGO)?;
+    let config_path_str = config_path.to_str().ok_or_else(|| {
+        CliError::ConfigError("Failed to convert config path to a string.".to_string())
+    })?;
+
     if registry::registry(
-        get_config_path(CONFIG_DIR, LOGO).to_str().unwrap(),
+        config_path_str,
         APP_NAME,
         &RegistryHandler::new(RegKey::predef(HKEY_CURRENT_USER)),
     )
@@ -588,43 +673,41 @@ fn setup_registry() {
     } else {
         error!("Registry setup was unsuccesful");
     }
+    Ok(())
 }
 
-async fn download_logo() {
-    let logo_path = get_config_path(CONFIG_DIR, LOGO);
+async fn download_logo() -> Result<(), CliError> {
+    let logo_path = get_config_path(CONFIG_DIR, LOGO)?;
 
     if logo_path.exists() {
-        return;
+        return Ok(());
     }
 
     let logo_url = "https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/logo.png";
 
-    if let Some(parent) = logo_path.parent() {
-        std::fs::create_dir_all(parent).expect("Failed to create log directory");
-    }
+    let parent = logo_path
+        .parent()
+        .ok_or_else(|| CliError::ConfigError("No parent directory".to_string()))?;
+    std::fs::create_dir_all(parent)?;
+
     let _ = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&logo_path)
-        .unwrap();
+        .open(&logo_path)?;
 
     let response = reqwest::get(logo_url)
         .await
-        .expect("Request did not succeed. Try again later.");
+        .map_err(ApiError::NetworkError)?;
 
     info!("Downloading logo.");
 
-    std::fs::write(
-        &logo_path,
-        response
-            .bytes()
-            .await
-            .expect("Error occured while downloading image bytes"),
-    )
-    .expect("Could not write to file.");
+    let bytes = response.bytes().await.map_err(ApiError::NetworkError)?;
+    std::fs::write(&logo_path, bytes)?;
 
     info!("Writing logo to file");
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -643,7 +726,7 @@ mod tests {
             env::set_var("HOME", home.path());
         }
 
-        let path = get_config_path(CONFIG_DIR, PID_FILE);
+        let path = get_config_path(CONFIG_DIR, PID_FILE).unwrap();
 
         // Using `MAIN_SEPARATOR` because of differences between Linux/macOS and Windows
         let expected_subpath = ".tuenroll".to_string()
@@ -658,12 +741,12 @@ mod tests {
 
         let mock_home_dir_fn = || Some(home.path().to_path_buf());
 
-        assert!(is_first_setup(mock_home_dir_fn)); // `.tuenroll` not yet created
+        assert!(is_first_setup(mock_home_dir_fn).unwrap()); // `.tuenroll` not yet created
 
         let config_path = home.path().to_owned().join(CONFIG_DIR);
         fs::create_dir_all(&config_path).unwrap();
 
-        assert!(!is_first_setup(mock_home_dir_fn)); // `.tuenroll` now exists
+        assert!(!is_first_setup(mock_home_dir_fn).unwrap()); // `.tuenroll` now exists
     }
 
     /// Tests related to `Status` command:
@@ -701,9 +784,11 @@ mod tests {
         fn test_store_last_check_time() {
             let temp_dir = tempfile::TempDir::new().unwrap();
             let mock_get_config_path =
-                |_config_dir: &str, filename: &str| temp_dir.path().join(filename);
+                |_config_dir: &str, filename: &str| -> Result<PathBuf, CliError> {
+                    Ok(temp_dir.path().join(filename))
+                };
 
-            store_last_check_time(mock_get_config_path);
+            store_last_check_time(mock_get_config_path).unwrap();
             let file_path = temp_dir.path().join(LAST_CHECK_FILE);
 
             assert!(file_path.exists()); // last check file should exist
@@ -721,11 +806,13 @@ mod tests {
         fn test_get_last_check_time() {
             let temp_dir = tempfile::TempDir::new().unwrap();
             let mock_get_config_path =
-                |_config_dir: &str, filename: &str| temp_dir.path().join(filename);
+                |_config_dir: &str, filename: &str| -> Result<PathBuf, CliError> {
+                    Ok(temp_dir.path().join(filename))
+                };
 
-            store_last_check_time(mock_get_config_path);
+            store_last_check_time(mock_get_config_path).unwrap();
 
-            let result = get_last_check_time(mock_get_config_path);
+            let result = get_last_check_time(mock_get_config_path).unwrap();
 
             let last_check_time = Utc::now();
             let expected_str = time_ago(DateTime::from(last_check_time));
@@ -766,7 +853,9 @@ mod tests {
         fn test_get_stored_pid() {
             let temp_dir = tempfile::TempDir::new().unwrap();
             let mock_get_config_path =
-                |_config_dir: &str, filename: &str| temp_dir.path().join(filename);
+                |_config_dir: &str, filename: &str| -> Result<PathBuf, CliError> {
+                    Ok(temp_dir.path().join(filename))
+                };
 
             // write to file
             let mock_pid = Pid { pid: Some(1234) };
@@ -774,7 +863,7 @@ mod tests {
             let pid_data = serde_json::to_string(&mock_pid).unwrap();
             fs::write(pid_file_path, pid_data).unwrap();
 
-            let result = get_stored_pid(mock_get_config_path);
+            let result = get_stored_pid(mock_get_config_path).unwrap();
             assert_eq!(result, Some(1234));
         }
 
@@ -782,9 +871,11 @@ mod tests {
         fn test_get_stored_pid_no_pid_file() {
             let temp_dir = tempfile::TempDir::new().unwrap();
             let mock_get_config_path =
-                |_config_dir: &str, filename: &str| temp_dir.path().join(filename);
+                |_config_dir: &str, filename: &str| -> Result<PathBuf, CliError> {
+                    Ok(temp_dir.path().join(filename))
+                };
 
-            let result = get_stored_pid(mock_get_config_path);
+            let result = get_stored_pid(mock_get_config_path).unwrap();
 
             assert_eq!(result, None);
         }
@@ -793,9 +884,11 @@ mod tests {
         fn test_store_pid() {
             let temp_dir = tempfile::TempDir::new().unwrap();
             let mock_get_config_path =
-                |_config_dir: &str, filename: &str| temp_dir.path().join(filename);
+                |_config_dir: &str, filename: &str| -> Result<PathBuf, CliError> {
+                    Ok(temp_dir.path().join(filename))
+                };
 
-            store_pid(Some(1234), mock_get_config_path);
+            store_pid(Some(1234), mock_get_config_path).unwrap();
 
             let pid_file_path = temp_dir.path().join(PID_FILE);
             assert!(pid_file_path.exists()); // verify file was created
@@ -810,9 +903,11 @@ mod tests {
         fn test_store_pid_none() {
             let temp_dir = tempfile::TempDir::new().unwrap();
             let mock_get_config_path =
-                |_config_dir: &str, filename: &str| temp_dir.path().join(filename);
+                |_config_dir: &str, filename: &str| -> Result<PathBuf, CliError> {
+                    Ok(temp_dir.path().join(filename))
+                };
 
-            store_pid(None, mock_get_config_path);
+            store_pid(None, mock_get_config_path).unwrap();
 
             let pid_file_path = temp_dir.path().join(PID_FILE);
             assert!(pid_file_path.exists()); // verify file was created

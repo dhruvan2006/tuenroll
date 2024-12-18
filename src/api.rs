@@ -1,10 +1,10 @@
 use crate::models::{CourseList, TestList};
+use crate::{ApiError, CliError, CredentialError};
 use async_trait::async_trait;
 use mockall::automock;
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::error::Error;
 
 const AUTH_URL: &str = "https://osi-auth-server-prd2.osiris-link.nl/oauth/authorize?response_type=code&client_id=osiris-authorization-server-tudprd&redirect_uri=https://my.tudelft.nl";
 const TOKEN_URL: &str = "https://my.tudelft.nl/student/osiris/token";
@@ -19,23 +19,15 @@ pub const TEST_REGISTRATION_URL: &str =
 #[automock]
 #[async_trait]
 pub trait ApiTrait {
-    async fn is_user_authenticated(
-        &self,
-        access_token: &str,
-        url: &str,
-    ) -> Result<bool, Box<dyn Error>>;
-    async fn get_access_token(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<String, Box<dyn Error>>;
+    async fn is_user_authenticated(&self, access_token: &str, url: &str) -> Result<bool, ApiError>;
+    async fn get_access_token(&self, username: &str, password: &str) -> Result<String, CliError>;
     async fn register_for_tests(
         &self,
         access_token: &str,
         registered_course_url: &str,
         test_course_url: &str,
         test_registration_url: &str,
-    ) -> Result<Vec<TestList>, Box<dyn Error>>;
+    ) -> Result<Vec<TestList>, CliError>;
 }
 
 pub struct Api {
@@ -44,19 +36,11 @@ pub struct Api {
 
 #[async_trait]
 impl ApiTrait for Api {
-    async fn is_user_authenticated(
-        &self,
-        access_token: &str,
-        url: &str,
-    ) -> Result<bool, Box<dyn Error>> {
+    async fn is_user_authenticated(&self, access_token: &str, url: &str) -> Result<bool, ApiError> {
         self.is_user_authenticated(access_token, url).await
     }
 
-    async fn get_access_token(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<String, Box<dyn Error>> {
+    async fn get_access_token(&self, username: &str, password: &str) -> Result<String, CliError> {
         self.get_access_token(username, password).await
     }
 
@@ -66,7 +50,7 @@ impl ApiTrait for Api {
         registered_course_url: &str,
         test_course_url: &str,
         test_registration_url: &str,
-    ) -> Result<Vec<TestList>, Box<dyn Error>> {
+    ) -> Result<Vec<TestList>, CliError> {
         self.register_for_tests(
             access_token,
             registered_course_url,
@@ -79,12 +63,10 @@ impl ApiTrait for Api {
 
 impl Api {
     /// Initializes a new instance of `Api` with a `reqwest::Client`` that persists cookies
-    pub fn new() -> Self {
-        let client = Client::builder()
-            .cookie_store(true)
-            .build()
-            .expect("Failed to build reqwest Client");
-        Api { client }
+    pub fn new() -> Result<Self, ApiError> {
+        let client = Client::builder().cookie_store(true).build()?;
+
+        Ok(Api { client })
     }
 
     /// Verifies if the user is authenticated by checking for the presence of a redirect URL
@@ -94,7 +76,7 @@ impl Api {
         &self,
         access_token: &str,
         url: &str,
-    ) -> Result<bool, Box<dyn Error>> {
+    ) -> Result<bool, ApiError> {
         let response = self
             .client
             .get(url)
@@ -119,9 +101,9 @@ impl Api {
         &self,
         username: &str,
         password: &str,
-    ) -> Result<String, Box<dyn Error>> {
+    ) -> Result<String, CliError> {
         let (url, body) = self.initiate_authorization(AUTH_URL).await?;
-        let auth_state = Self::get_auth_state(&body);
+        let auth_state = Self::get_auth_state(&body)?;
         let body = self
             .submit_login_form(username, password, &url, &auth_state)
             .await?;
@@ -138,25 +120,43 @@ impl Api {
         Ok(access_token)
     }
 
-    async fn initiate_authorization(&self, url: &str) -> Result<(String, String), Box<dyn Error>> {
+    async fn initiate_authorization(&self, url: &str) -> Result<(String, String), ApiError> {
         let response = self.client.post(url).send().await?;
         let url = response.url().as_str().to_string();
         let body = response.text().await?;
         Ok((url, body))
     }
 
-    fn get_auth_state(body: &str) -> String {
+    fn get_auth_state(body: &str) -> Result<String, CliError> {
         let document = scraper::Html::parse_document(body);
-        let form_selector = scraper::Selector::parse("form[name='f']").unwrap();
-        let form_element = document.select(&form_selector).next().unwrap();
 
-        let auth_state_selector = scraper::Selector::parse("input[name='AuthState']").unwrap();
-        let auth_state_element = form_element.select(&auth_state_selector).next().unwrap();
+        let form_selector = scraper::Selector::parse("form[name='f']")
+            .map_err(|e| ApiError::InvalidResponse(format!("Form selector parse error: {}", e)))?;
+
+        let form_element = document
+            .select(&form_selector)
+            .next()
+            .ok_or_else(|| CredentialError::InvalidCredentials)?;
+
+        let auth_state_selector =
+            scraper::Selector::parse("input[name='AuthState']").map_err(|e| {
+                ApiError::InvalidResponse(format!("AuthState selector parse error: {}", e))
+            })?;
+
+        let auth_state_element = form_element
+            .select(&auth_state_selector)
+            .next()
+            .ok_or_else(|| ApiError::InvalidResponse("AuthState input not found".to_string()))?;
+
         auth_state_element
             .value()
             .attr("value")
-            .unwrap()
-            .to_string()
+            .map(|v| v.to_string())
+            .ok_or_else(|| {
+                CliError::from(ApiError::InvalidResponse(
+                    "AuthState value not found".to_string(),
+                ))
+            })
     }
 
     async fn submit_login_form(
@@ -165,32 +165,49 @@ impl Api {
         password: &str,
         url: &str,
         auth_state: &str,
-    ) -> Result<String, Box<dyn Error>> {
+    ) -> Result<String, CliError> {
         let mut form_data = reqwest::multipart::Form::new();
         form_data = form_data.text("username", username.to_string());
         form_data = form_data.text("password", password.to_string());
         form_data = form_data.text("AuthState", auth_state.to_string());
 
-        let response = self.client.post(url).multipart(form_data).send().await?;
-        let body = response.text().await?;
+        let response = self
+            .client
+            .post(url)
+            .multipart(form_data)
+            .send()
+            .await
+            .map_err(ApiError::NetworkError)?;
+        let body = response.text().await.map_err(ApiError::NetworkError)?;
 
         // Checks whether the username/password was correct by checking if
         // form is in the response HTML
         let document = scraper::Html::parse_document(&body);
-        let form_selector = scraper::Selector::parse("form").expect("Invalid form selector");
+        let form_selector = scraper::Selector::parse("form")
+            .map_err(|e| ApiError::InvalidResponse(format!("Form selector parse error: {}", e)))?;
         if document.select(&form_selector).next().is_some() {
             return Ok(body);
         }
 
-        Err("Incorrect username or password or form action not found".into())
+        Err(CliError::from(CredentialError::InvalidCredentials))
     }
 
-    fn extract_saml_response(body: &str) -> Result<(String, String, String), Box<dyn Error>> {
+    fn extract_saml_response(body: &str) -> Result<(String, String, String), CliError> {
         let document = scraper::Html::parse_document(body);
 
-        let form_selector = scraper::Selector::parse("form").unwrap();
-        let form_element = document.select(&form_selector).next().unwrap();
-        let form_action = form_element.value().attr("action").unwrap().to_string();
+        let form_selector = scraper::Selector::parse("form")
+            .map_err(|e| ApiError::InvalidResponse(format!("Form selector parse error: {}", e)))?;
+
+        let form_element = document
+            .select(&form_selector)
+            .next()
+            .ok_or_else(|| ApiError::InvalidResponse("Form element not found".to_string()))?;
+
+        let form_action = form_element
+            .value()
+            .attr("action")
+            .ok_or_else(|| ApiError::InvalidResponse("Form action not found".to_string()))?
+            .to_string();
 
         let saml_response = Self::extract_input_value(&form_element, "input[name='SAMLResponse']")?;
         let relay_state = Self::extract_input_value(&form_element, "input[name='RelayState']")?;
@@ -201,12 +218,24 @@ impl Api {
     fn extract_input_value(
         element: &scraper::ElementRef,
         selector_str: &str,
-    ) -> Result<String, Box<dyn Error>> {
-        let selector = scraper::Selector::parse(selector_str).unwrap();
-        match element.select(&selector).next() {
-            Some(input_element) => Ok(input_element.value().attr("value").unwrap().to_string()),
-            None => Err("Unauthenticated".into()),
-        }
+    ) -> Result<String, CliError> {
+        let selector = scraper::Selector::parse(selector_str)
+            .map_err(|e| ApiError::InvalidResponse(format!("Selector parse error: {}", e)))?;
+
+        let input_element = element
+            .select(&selector)
+            .next()
+            .ok_or_else(|| CredentialError::InvalidCredentials)?;
+
+        input_element
+            .value()
+            .attr("value")
+            .map(|v| v.to_string())
+            .ok_or_else(|| {
+                CliError::from(ApiError::InvalidResponse(
+                    "Attribute 'value' not found".to_string(),
+                ))
+            })
     }
 
     async fn submit_saml_response(
@@ -214,7 +243,7 @@ impl Api {
         form_action: &str,
         saml_response: &str,
         relay_state: &str,
-    ) -> Result<String, Box<dyn Error>> {
+    ) -> Result<String, ApiError> {
         let mut form_data = HashMap::new();
         form_data.insert("SAMLResponse", saml_response);
         form_data.insert("RelayState", relay_state);
@@ -226,12 +255,12 @@ impl Api {
         let code = code_url
             .split('=')
             .last()
-            .expect("Code for authorization missing");
+            .ok_or_else(|| ApiError::InvalidResponse("Authorization code missing".to_string()))?;
 
         Ok(code.to_string())
     }
 
-    async fn request_access_token(&self, code: &str, url: &str) -> Result<String, Box<dyn Error>> {
+    async fn request_access_token(&self, code: &str, url: &str) -> Result<String, ApiError> {
         let mut body = HashMap::new();
         body.insert("code", code);
         body.insert("redirect_uri", "");
@@ -241,7 +270,7 @@ impl Api {
         let json_response: Value = response.json().await?;
         let access_token = json_response["access_token"]
             .as_str()
-            .expect("access_token not found or invalid type")
+            .ok_or_else(|| ApiError::InvalidResponse("Authorization code missing".to_string()))?
             .to_string();
 
         Ok(access_token)
@@ -256,7 +285,7 @@ impl Api {
         registered_course_url: &str,
         test_course_url: &str,
         test_registration_url: &str,
-    ) -> Result<Vec<TestList>, Box<dyn Error>> {
+    ) -> Result<Vec<TestList>, CliError> {
         // Gets all the tests for all the courses that the user is currently enrolled in
         let courses = self
             .get_course_list(access_token, registered_course_url)
@@ -270,7 +299,10 @@ impl Api {
             if course_tests.is_none() {
                 continue;
             }
-            test_list.push(course_tests.expect("TestList not found"));
+            test_list.push(
+                course_tests
+                    .ok_or_else(|| ApiError::InvalidResponse("TestList not found".to_string()))?,
+            );
         }
 
         // Enroll for all the tests found
@@ -294,27 +326,25 @@ impl Api {
         &self,
         access_token: &str,
         course_url: &str,
-    ) -> Result<CourseList, Box<dyn Error>> {
+    ) -> Result<CourseList, CliError> {
         let response = self
             .client
             .get(course_url)
             .bearer_auth(access_token)
             .send()
-            .await?;
-        let response_text = response.text().await?;
-        let response_json: Value = serde_json::from_str(&response_text)?;
+            .await
+            .map_err(ApiError::NetworkError)?;
+        let response_text = response.text().await.map_err(ApiError::NetworkError)?;
+        let response_json: Value =
+            serde_json::from_str(&response_text).map_err(ApiError::JsonDecodeError)?;
 
         // Handle unauthenticated request
-        if let Some(auth_redirect_url) = response_json.get("Authenticate-Redirect-Url") {
-            return Err(format!(
-                "Unauthenticated: Redirect to {}",
-                auth_redirect_url.as_str().unwrap_or("unknown URL")
-            )
-            .into());
+        if response_json.get("Authenticate-Redirect-Url").is_some() {
+            return Err(CredentialError::InvalidCredentials)?;
         }
 
-        // TODO: The URL is hardcoded to include max of 25 courses.
-        let course_list: CourseList = serde_json::from_value(response_json)?;
+        let course_list: CourseList =
+            serde_json::from_value(response_json).map_err(ApiError::JsonDecodeError)?;
         Ok(course_list)
     }
 
@@ -326,7 +356,7 @@ impl Api {
         access_token: &str,
         course_id: u32,
         url: &str,
-    ) -> Result<Option<TestList>, Box<dyn Error>> {
+    ) -> Result<Option<TestList>, ApiError> {
         let test_url = url.to_string() + course_id.to_string().as_str();
         let response = self
             .client
@@ -336,10 +366,8 @@ impl Api {
             .await?;
         let response_json: Value = response.json().await?;
 
-        // URL endpoint returns JSON with failure if no tests open for enrollment
         if response_json.get("failure").is_some() {
             return Ok(None);
-            //return Err(format!("No test open for enrollment for course_id: {}", course_id).into());
         }
 
         let test_list: TestList = serde_json::from_value(response_json)?;
@@ -355,7 +383,7 @@ impl Api {
         access_token: &str,
         toetsen: &TestList,
         url: &str,
-    ) -> Result<bool, Box<dyn Error>> {
+    ) -> Result<bool, ApiError> {
         let response = self
             .client
             .post(url)
@@ -377,13 +405,16 @@ impl Api {
             };
         }
 
-        Err("Unexpected return format".into())
+        Err(ApiError::InvalidResponse(
+            "Unexpected return format".to_string(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CliError;
 
     #[tokio::test]
     async fn test_is_user_authenticated_mock_authenticated() {
@@ -401,7 +432,7 @@ mod tests {
             .create();
 
         let url = format!("{}/test", server.url());
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let response = api
             .is_user_authenticated("access_token", &*url)
             .await
@@ -427,7 +458,7 @@ mod tests {
             .create();
 
         let url = format!("{}/test", server.url());
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let response = api
             .is_user_authenticated("access_token", &*url)
             .await
@@ -458,7 +489,7 @@ mod tests {
             .create();
 
         let request_url = format!("{}/oauth/authorize", url);
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let response = api.initiate_authorization(&request_url).await;
 
         assert!(response.is_ok());
@@ -470,22 +501,6 @@ mod tests {
         _mock_final_destination.assert();
     }
 
-    // /// Tests a real OAuth flow by calling the live `/oauth/authorize` endpoint.
-    // /// Verifies that `initiate_authorization` correctly follows a live 302 redirect and ensures that the response body contains the expected form data and `AuthState` parameter.
-    // #[tokio::test]
-    // async fn test_initiate_authorization_live() {
-    //     let api = Api::new();
-    //     let response = api.initiate_authorization(AUTH_URL).await;
-    //
-    //     assert!(response.is_ok());
-    //     // Url should be of the form https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState=<auth_state>
-    //     let (url, body) = response.unwrap();
-    //     assert!(url
-    //         .contains("https://login.tudelft.nl/sso/module.php/core/loginuserpass.php?AuthState="));
-    //     assert!(body.contains("<form"));
-    //     assert!(body.contains("AuthState"));
-    // }
-
     #[test]
     fn test_get_auth_state() {
         let html = r#"
@@ -496,7 +511,7 @@ mod tests {
             </form>
         "#;
 
-        let auth_state = Api::get_auth_state(html);
+        let auth_state = Api::get_auth_state(html).unwrap();
         assert_eq!(auth_state, "test-auth-state-123");
     }
 
@@ -520,7 +535,7 @@ mod tests {
             .create();
 
         let request_url = format!("{}/submit_login", url);
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let body = api
             .submit_login_form(username, password, &request_url, auth_state)
             .await
@@ -578,7 +593,7 @@ mod tests {
         let saml_response = "dummy_saml_response";
         let relay_state = "dummy_relay_state";
 
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api
             .submit_saml_response(&form_action, saml_response, relay_state)
             .await;
@@ -612,7 +627,7 @@ mod tests {
         let code = "auth_code_example";
         let request_url = format!("{}/access_token", url);
 
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api.request_access_token(code, &request_url).await;
 
         assert!(result.is_ok());
@@ -646,7 +661,7 @@ mod tests {
             .create();
 
         let course_url = &format!("{}/cursussen", server.url());
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api.get_course_list("valid_token", course_url).await;
 
         assert!(result.is_ok());
@@ -673,13 +688,13 @@ mod tests {
             .create();
 
         let url = format!("{}/cursussen", server.url());
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api.get_course_list("test-access-token", &url).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Redirect to https://auth.url/reauthenticate"));
+        match result.unwrap_err() {
+            CliError::CredentialError(CredentialError::InvalidCredentials) => {}
+            _ => panic!("Expected InvalidCredentials error"),
+        }
     }
 
     /// Tests `get_test_list_for_course` by simulating a successful request to retrieve tests available
@@ -701,7 +716,7 @@ mod tests {
             .create();
 
         let url = format!("{}/tests/", server.url());
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api
             .get_test_list_for_course("valid_token", 1234, &url)
             .await;
@@ -748,7 +763,7 @@ mod tests {
             .create();
 
         let url = format!("{}/tests/", server.url());
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api
             .get_test_list_for_course("valid_token", 1234, &url)
             .await;
@@ -851,7 +866,7 @@ mod tests {
             serde_json::from_value(test_1234).expect("Conversion failed"),
         ];
 
-        let api = Api::new();
+        let api = Api::new().expect("Failed to start reqwest Client");
         let result = api
             .register_for_tests("valid_token", &course_url, &test_url, &test_reg_url)
             .await;
