@@ -81,6 +81,25 @@ const LOGO: &str = "logo.png";
 #[allow(clippy::zombie_processes)]
 #[tokio::main]
 async fn main() {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::System::Console::GetConsoleWindow;
+        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+        let args: Vec<String> = env::args().collect();
+
+        if args.contains(&"--boot".to_string()) {
+            // Hide the console window if --boot is passed
+            unsafe {
+                let console_window: HWND = GetConsoleWindow();
+                if console_window != HWND(0) {
+                    let _ = ShowWindow(console_window, SW_HIDE); // Hide the console window
+                }
+            }
+        }
+    }
+
     // Check if it's the first setup
     if is_first_setup(dirs::home_dir) {
         display_logo();
