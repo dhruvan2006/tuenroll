@@ -143,7 +143,7 @@ async fn main() {
             }
         }
     }
-  
+
     if let Err(e) = run().await {
         error!("{}", e);
         println!("{}", e.to_string().red().bold());
