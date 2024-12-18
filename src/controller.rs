@@ -73,7 +73,8 @@ impl<
                 CredentialManager::<T>::prompt_for_credentials,
                 !self.is_boot,
             );
-            if let Some(data) = self.handle_request(request.await, true, true) {  // params don't matter
+            if let Some(data) = self.handle_request(request.await, false, false) {
+                // don't exit or send notif
                 credentials = data;
                 if !self.is_boot {
                     println!("{}", "Credentials validated successfully!".green().bold());
@@ -150,12 +151,17 @@ impl<
         }
 
         // Store the last check time
-        store_last_check_time(get_config_path);
+        store_last_check_time(get_config_path)?;
 
         Ok(())
     }
 
-    fn handle_request<R>(&mut self, request: Result<R, CliError>, exit: bool, notif: bool) -> Option<R> {
+    fn handle_request<R>(
+        &mut self,
+        request: Result<R, CliError>,
+        exit: bool,
+        notif: bool,
+    ) -> Option<R> {
         match request {
             Ok(data) => Some(data),
             Err(e) => {
@@ -181,10 +187,7 @@ impl<
                         // 3. `Boot`  -> Don't print + Show notification
                         error!("{}", cred_err);
                         if !self.is_boot {
-                            eprintln!(
-                                "{}",
-                                format!("{}", cred_err).red().bold()
-                            );
+                            eprintln!("{}", format!("{}", cred_err).red().bold());
                         }
                         if !self.is_loop && exit {
                             self.exit_fn.clone()(1); // Exit if `run` and credentials error
@@ -193,6 +196,16 @@ impl<
                                 "Your credentials are invalid. Run tuenroll start again",
                             );
                         }
+                    }
+                    // Don't believe we can fix: ConfigError, IOError & JsonError
+                    CliError::ConfigError(e) => {
+                        error!("Config error: {}", e);
+                    }
+                    CliError::IoError(e) => {
+                        error!("IO error: {}", e);
+                    }
+                    CliError::JsonError(e) => {
+                        error!("JSON error: {}", e);
                     }
                 }
 

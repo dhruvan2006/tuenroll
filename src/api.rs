@@ -152,7 +152,11 @@ impl Api {
             .value()
             .attr("value")
             .map(|v| v.to_string())
-            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("AuthState value not found".to_string())))
+            .ok_or_else(|| {
+                CliError::ApiError(ApiError::InvalidResponse(
+                    "AuthState value not found".to_string(),
+                ))
+            })
     }
 
     async fn submit_login_form(
@@ -200,18 +204,27 @@ impl Api {
     fn extract_saml_response(body: &str) -> Result<(String, String, String), CliError> {
         let document = scraper::Html::parse_document(body);
 
-        let form_selector = scraper::Selector::parse("form")
-            .map_err(|e| CliError::ApiError(ApiError::InvalidResponse(format!("Form selector parse error: {}", e))))?;
+        let form_selector = scraper::Selector::parse("form").map_err(|e| {
+            CliError::ApiError(ApiError::InvalidResponse(format!(
+                "Form selector parse error: {}",
+                e
+            )))
+        })?;
 
-        let form_element = document
-            .select(&form_selector)
-            .next()
-            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("Form element not found".to_string())))?;
+        let form_element = document.select(&form_selector).next().ok_or_else(|| {
+            CliError::ApiError(ApiError::InvalidResponse(
+                "Form element not found".to_string(),
+            ))
+        })?;
 
         let form_action = form_element
             .value()
             .attr("action")
-            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("Form action not found".to_string())))?
+            .ok_or_else(|| {
+                CliError::ApiError(ApiError::InvalidResponse(
+                    "Form action not found".to_string(),
+                ))
+            })?
             .to_string();
 
         let saml_response = Self::extract_input_value(&form_element, "input[name='SAMLResponse']")?;
@@ -224,8 +237,12 @@ impl Api {
         element: &scraper::ElementRef,
         selector_str: &str,
     ) -> Result<String, CliError> {
-        let selector = scraper::Selector::parse(selector_str)
-            .map_err(|e| CliError::ApiError(ApiError::InvalidResponse(format!("Selector parse error: {}", e))))?;
+        let selector = scraper::Selector::parse(selector_str).map_err(|e| {
+            CliError::ApiError(ApiError::InvalidResponse(format!(
+                "Selector parse error: {}",
+                e
+            )))
+        })?;
 
         let input_element = element
             .select(&selector)
@@ -236,7 +253,11 @@ impl Api {
             .value()
             .attr("value")
             .map(|v| v.to_string())
-            .ok_or_else(|| CliError::ApiError(ApiError::InvalidResponse("Attribute 'value' not found".to_string())))
+            .ok_or_else(|| {
+                CliError::ApiError(ApiError::InvalidResponse(
+                    "Attribute 'value' not found".to_string(),
+                ))
+            })
     }
 
     async fn submit_saml_response(
