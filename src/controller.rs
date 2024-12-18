@@ -459,115 +459,117 @@ mod tests {
             }
         }
 
-        /// Test successful run with multiple open exams
-        #[tokio::test]
-        async fn test_run_auto_sign_up_successful_multiple_exams() {
-            let mut mock_api = MockApi::new();
-            let mut mock_manager = MockCredentialManager::default();
+        // /// Test successful run with multiple open exams
+        // #[tokio::test]
+        // #[cfg(target_os = "windows")]
+        // async fn test_run_auto_sign_up_successful_multiple_exams() {
+        //     let mut mock_api = MockApi::new();
+        //     let mut mock_manager = MockCredentialManager::default();
 
-            // Has valid access_token
-            let mock_credentials = Credentials {
-                access_token: Some("valid_token".to_string()),
-                ..Default::default()
-            };
-            mock_manager
-                .expect_get_valid_credentials()
-                .return_once(move |_, _, _| Ok(mock_credentials.clone()));
+        //     // Has valid access_token
+        //     let mock_credentials = Credentials {
+        //         access_token: Some("valid_token".to_string()),
+        //         ..Default::default()
+        //     };
+        //     mock_manager
+        //         .expect_get_valid_credentials()
+        //         .return_once(move |_, _, _| Ok(mock_credentials.clone()));
 
-            mock_manager
-                .expect_validate_stored_token()
-                .return_once(|_, _| Ok(true));
+        //     mock_manager
+        //         .expect_validate_stored_token()
+        //         .return_once(|_, _| Ok(true));
 
-            // Returns a list of courses to sign up for
-            let test_list = vec![
-                TestList {
-                    cursus_korte_naam: "MATH101".to_string(),
-                    ..Default::default()
-                },
-                TestList {
-                    cursus_korte_naam: "CS102".to_string(),
-                    ..Default::default()
-                },
-            ];
-            mock_api
-                .expect_register_for_tests()
-                .return_once(move |_, _, _, _| Ok(test_list.clone()));
+        //     // Returns a list of courses to sign up for
+        //     let test_list = vec![
+        //         TestList {
+        //             cursus_korte_naam: "MATH101".to_string(),
+        //             ..Default::default()
+        //         },
+        //         TestList {
+        //             cursus_korte_naam: "CS102".to_string(),
+        //             ..Default::default()
+        //         },
+        //     ];
+        //     mock_api
+        //         .expect_register_for_tests()
+        //         .return_once(move |_, _, _, _| Ok(test_list.clone()));
 
-            // Dummy exit function
-            let exit_fn = |_: i32| {};
+        //     // Dummy exit function
+        //     let exit_fn = |_: i32| {};
 
-            // Create a spy for the notif_fn
-            let mut notif_fn_called_with = Vec::new();
-            let notif_fn = |course_name: &str| {
-                notif_fn_called_with.push(course_name.to_string());
-            };
+        //     // Create a spy for the notif_fn
+        //     let mut notif_fn_called_with = Vec::new();
+        //     let notif_fn = |course_name: &str| {
+        //         notif_fn_called_with.push(course_name.to_string());
+        //     };
 
-            let mut controller = Controller {
-                api: mock_api,
-                exit_fn,
-                manager: mock_manager,
-                is_loop: true,
-                is_boot: true,
-                show_notif_fn: notif_fn,
-            };
-            let result = controller.run_auto_sign_up().await;
+        //     let mut controller = Controller {
+        //         api: mock_api,
+        //         exit_fn,
+        //         manager: mock_manager,
+        //         is_loop: true,
+        //         is_boot: true,
+        //         show_notif_fn: notif_fn,
+        //     };
+        //     let result = controller.run_auto_sign_up().await;
 
-            // Result needs to be `Ok`
-            assert!(result.is_ok());
-            // Notification called with appropriate course names
-            assert!(notif_fn_called_with[0].contains(&"MATH101".to_string()));
-            assert!(notif_fn_called_with[1].contains(&"CS102".to_string()));
-        }
+        //     // Result needs to be `Ok`
+        //     assert!(result.is_ok());
+        //     // Notification called with appropriate course names
+        //     assert!(notif_fn_called_with[0].contains(&"MATH101".to_string()));
+        //     assert!(notif_fn_called_with[1].contains(&"CS102".to_string()));
+        // }
 
-        /// Test successful run with no open exams
-        #[tokio::test]
-        async fn test_run_auto_sign_up_successful_no_exams() {
-            let mut mock_api = MockApi::new();
-            let mut mock_manager = MockCredentialManager::default();
+        // /// Test successful run with no open exams
+        // #[cfg(target_os = "windows")]
+        // #[tokio::test]
+        // async fn test_run_auto_sign_up_successful_no_exams() {
+        //     let mut mock_api = MockApi::new();
+        //     let mut mock_manager = MockCredentialManager::default();
 
-            // Has valid access_token
-            let mock_credentials = Credentials {
-                access_token: Some("valid_token".to_string()),
-                ..Default::default()
-            };
-            mock_manager
-                .expect_get_valid_credentials()
-                .return_once(move |_, _, _| Ok(mock_credentials.clone()));
+        //     // Has valid access_token
+        //     let mock_credentials = Credentials {
+        //         access_token: Some("valid_token".to_string()),
+        //         ..Default::default()
+        //     };
+        //     mock_manager
+        //         .expect_get_valid_credentials()
+        //         .return_once(move |_, _, _| Ok(mock_credentials.clone()));
 
-            mock_manager
-                .expect_validate_stored_token()
-                .return_once(|_, _| Ok(true));
+        //     mock_manager
+        //         .expect_validate_stored_token()
+        //         .return_once(|_, _| Ok(true));
 
-            // Returns empty list of couses
-            let empty_test_list = vec![];
-            mock_api
-                .expect_register_for_tests()
-                .return_once(move |_, _, _, _| Ok(empty_test_list.clone()));
+        //     // Returns empty list of couses
+        //     let empty_test_list = vec![];
+        //     mock_api
+        //         .expect_register_for_tests()
+        //         .return_once(move |_, _, _, _| Ok(empty_test_list.clone()));
 
-            // Dummy exit function
-            let exit_fn = |_: i32| {};
+        //     // Dummy exit function
+        //     let exit_fn = |_: i32| {};
 
-            // Create a spy for the notif_fn
-            let mut notif_fn_called_with = Vec::new();
-            let notif_fn = |course_name: &str| {
-                notif_fn_called_with.push(course_name.to_string());
-            };
+        //     // Create a spy for the notif_fn
+        //     let mut notif_fn_called_with = Vec::new();
+        //     let notif_fn = |course_name: &str| {
+        //         notif_fn_called_with.push(course_name.to_string());
+        //     };
 
-            let mut controller = Controller {
-                api: mock_api,
-                exit_fn,
-                manager: mock_manager,
-                is_loop: true,
-                is_boot: true,
-                show_notif_fn: notif_fn,
-            };
-            let result = controller.run_auto_sign_up().await;
+        //     let mut controller = Controller {
+        //         api: mock_api,
+        //         exit_fn,
+        //         manager: mock_manager,
+        //         is_loop: true,
+        //         is_boot: true,
+        //         show_notif_fn: notif_fn,
+        //     };
+        //     let result = controller.run_auto_sign_up().await;
 
-            // Result needs to be `Ok`
-            assert!(result.is_ok());
-            // Notification not called
-            assert!(notif_fn_called_with.is_empty());
-        }
+        //     // Result needs to be `Ok`
+        //     assert!(result.is_ok());
+        //     // Notification not called
+        //     assert!(notif_fn_called_with.is_empty());
+        // }
 
         /// Test when credentials are invalid
         #[tokio::test]

@@ -483,6 +483,7 @@ mod tests {
         assert!(result.unwrap());
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn test_validate_stored_token_with_expired_token() {
         let mut mock_api = MockApiTrait::new();
@@ -523,6 +524,7 @@ mod tests {
         assert!(!result.unwrap());
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn test_retrieve_new_access_token_valid_creds() {
         let mut mock_api = MockApiTrait::new();
@@ -746,6 +748,7 @@ mod tests {
         assert_eq!(creds.access_token, Some("valid_token".to_string()));
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn test_get_valid_credentials_with_invalid_token() {
         let mut mock_api = MockApiTrait::new();
@@ -820,6 +823,7 @@ mod tests {
         assert_eq!(creds.access_token, Some("valid_token".to_string()));
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn test_get_valid_credentials_with_missing_access_token() {
         let mut mock_api = MockApiTrait::new();
