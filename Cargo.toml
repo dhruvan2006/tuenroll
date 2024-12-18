@@ -29,3 +29,4 @@ thiserror = "2.0.7"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10"
+windows = { version = "0.56.0", features = ["Win32_UI", "Win32_UI_WindowsAndMessaging", "Win32_System_Console"] }
