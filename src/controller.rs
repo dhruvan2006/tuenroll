@@ -107,15 +107,13 @@ impl<
             .validate_stored_token(&credentials, api::REGISTERED_COURSE_URL)
             .await?
         {
-            return Err(CliError::CredentialError(
-                CredentialError::InvalidCredentials,
-            ));
+            return Err(CliError::from(CredentialError::InvalidCredentials));
         }
 
         // Get the access_token, should not fail
         let access_token = credentials
             .access_token
-            .ok_or_else(|| CliError::CredentialError(CredentialError::InvalidCredentials))?;
+            .ok_or_else(|| CredentialError::InvalidCredentials)?;
 
         // Register for tests
         let registration_result = self
@@ -241,11 +239,7 @@ mod tests {
 
             mock_manager
                 .expect_get_valid_credentials()
-                .returning(|_, _, _| {
-                    Err(CliError::CredentialError(
-                        CredentialError::InvalidCredentials,
-                    ))
-                })
+                .returning(|_, _, _| Err(CliError::from(CredentialError::InvalidCredentials)))
                 .times(2); // simulate two failures
             mock_manager
                 .expect_get_valid_credentials()

@@ -16,8 +16,6 @@ use serde::{Deserialize, Serialize};
 use simplelog::*;
 use std::env;
 #[cfg(not(target_os = "windows"))]
-use std::io;
-#[cfg(not(target_os = "windows"))]
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -452,6 +450,7 @@ fn stop_program() -> Result<Option<u32>, CliError> {
     };
     info!("Attempting to stop the process with PID: {}", pid);
 
+    #[cfg(target_os = "windows")]
     Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
         .stdout(Stdio::null()) // Suppress standard output
@@ -680,14 +679,11 @@ async fn download_logo() -> Result<(), CliError> {
 
     let response = reqwest::get(logo_url)
         .await
-        .map_err(|e| CliError::ApiError(ApiError::NetworkError(e)))?;
+        .map_err(ApiError::NetworkError)?;
 
     info!("Downloading logo.");
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| CliError::ApiError(ApiError::NetworkError(e)))?;
+    let bytes = response.bytes().await.map_err(ApiError::NetworkError)?;
     std::fs::write(&logo_path, bytes)?;
 
     info!("Writing logo to file");

@@ -227,7 +227,7 @@ impl<T: ApiTrait> CredentialManager<T> {
             .username
             .as_deref()
             .zip(credentials.password.as_deref())
-            .ok_or_else(|| CliError::CredentialError(CredentialError::InvalidCredentials))?;
+            .ok_or_else(|| CredentialError::InvalidCredentials)?;
 
         // Request new access token
         let token = self.api.get_access_token(username, password).await?;

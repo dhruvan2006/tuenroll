@@ -136,7 +136,7 @@ impl Api {
         let form_element = document
             .select(&form_selector)
             .next()
-            .ok_or_else(|| CliError::CredentialError(CredentialError::InvalidCredentials))?;
+            .ok_or_else(|| CredentialError::InvalidCredentials)?;
 
         let auth_state_selector =
             scraper::Selector::parse("input[name='AuthState']").map_err(|e| {
@@ -153,7 +153,7 @@ impl Api {
             .attr("value")
             .map(|v| v.to_string())
             .ok_or_else(|| {
-                CliError::ApiError(ApiError::InvalidResponse(
+                CliError::from(ApiError::InvalidResponse(
                     "AuthState value not found".to_string(),
                 ))
             })
@@ -177,54 +177,36 @@ impl Api {
             .multipart(form_data)
             .send()
             .await
-            .map_err(|e| CliError::ApiError(ApiError::NetworkError(e)))?;
-        let body = response
-            .text()
-            .await
-            .map_err(|e| CliError::ApiError(ApiError::NetworkError(e)))?;
+            .map_err(ApiError::NetworkError)?;
+        let body = response.text().await.map_err(ApiError::NetworkError)?;
 
         // Checks whether the username/password was correct by checking if
         // form is in the response HTML
         let document = scraper::Html::parse_document(&body);
-        let form_selector = scraper::Selector::parse("form").map_err(|e| {
-            CliError::ApiError(ApiError::InvalidResponse(format!(
-                "Form selector parse error: {}",
-                e
-            )))
-        })?;
+        let form_selector = scraper::Selector::parse("form")
+            .map_err(|e| ApiError::InvalidResponse(format!("Form selector parse error: {}", e)))?;
         if document.select(&form_selector).next().is_some() {
             return Ok(body);
         }
 
-        Err(CliError::CredentialError(
-            CredentialError::InvalidCredentials,
-        ))
+        Err(CliError::from(CredentialError::InvalidCredentials))
     }
 
     fn extract_saml_response(body: &str) -> Result<(String, String, String), CliError> {
         let document = scraper::Html::parse_document(body);
 
-        let form_selector = scraper::Selector::parse("form").map_err(|e| {
-            CliError::ApiError(ApiError::InvalidResponse(format!(
-                "Form selector parse error: {}",
-                e
-            )))
-        })?;
+        let form_selector = scraper::Selector::parse("form")
+            .map_err(|e| ApiError::InvalidResponse(format!("Form selector parse error: {}", e)))?;
 
-        let form_element = document.select(&form_selector).next().ok_or_else(|| {
-            CliError::ApiError(ApiError::InvalidResponse(
-                "Form element not found".to_string(),
-            ))
-        })?;
+        let form_element = document
+            .select(&form_selector)
+            .next()
+            .ok_or_else(|| ApiError::InvalidResponse("Form element not found".to_string()))?;
 
         let form_action = form_element
             .value()
             .attr("action")
-            .ok_or_else(|| {
-                CliError::ApiError(ApiError::InvalidResponse(
-                    "Form action not found".to_string(),
-                ))
-            })?
+            .ok_or_else(|| ApiError::InvalidResponse("Form action not found".to_string()))?
             .to_string();
 
         let saml_response = Self::extract_input_value(&form_element, "input[name='SAMLResponse']")?;
@@ -237,24 +219,20 @@ impl Api {
         element: &scraper::ElementRef,
         selector_str: &str,
     ) -> Result<String, CliError> {
-        let selector = scraper::Selector::parse(selector_str).map_err(|e| {
-            CliError::ApiError(ApiError::InvalidResponse(format!(
-                "Selector parse error: {}",
-                e
-            )))
-        })?;
+        let selector = scraper::Selector::parse(selector_str)
+            .map_err(|e| ApiError::InvalidResponse(format!("Selector parse error: {}", e)))?;
 
         let input_element = element
             .select(&selector)
             .next()
-            .ok_or_else(|| CliError::CredentialError(CredentialError::InvalidCredentials))?;
+            .ok_or_else(|| CredentialError::InvalidCredentials)?;
 
         input_element
             .value()
             .attr("value")
             .map(|v| v.to_string())
             .ok_or_else(|| {
-                CliError::ApiError(ApiError::InvalidResponse(
+                CliError::from(ApiError::InvalidResponse(
                     "Attribute 'value' not found".to_string(),
                 ))
             })
@@ -321,9 +299,10 @@ impl Api {
             if course_tests.is_none() {
                 continue;
             }
-            test_list.push(course_tests.ok_or_else(|| {
-                CliError::ApiError(ApiError::InvalidResponse("TestList not found".to_string()))
-            })?);
+            test_list.push(
+                course_tests
+                    .ok_or_else(|| ApiError::InvalidResponse("TestList not found".to_string()))?,
+            );
         }
 
         // Enroll for all the tests found
@@ -354,23 +333,18 @@ impl Api {
             .bearer_auth(access_token)
             .send()
             .await
-            .map_err(|e| CliError::ApiError(ApiError::NetworkError(e)))?;
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| CliError::ApiError(ApiError::NetworkError(e)))?;
-        let response_json: Value = serde_json::from_str(&response_text)
-            .map_err(|e| CliError::ApiError(ApiError::JsonDecodeError(e)))?;
+            .map_err(ApiError::NetworkError)?;
+        let response_text = response.text().await.map_err(ApiError::NetworkError)?;
+        let response_json: Value =
+            serde_json::from_str(&response_text).map_err(ApiError::JsonDecodeError)?;
 
         // Handle unauthenticated request
         if response_json.get("Authenticate-Redirect-Url").is_some() {
-            return Err(CliError::CredentialError(
-                CredentialError::InvalidCredentials,
-            ));
+            return Err(CredentialError::InvalidCredentials)?;
         }
 
-        let course_list: CourseList = serde_json::from_value(response_json)
-            .map_err(|e| CliError::ApiError(ApiError::JsonDecodeError(e)))?;
+        let course_list: CourseList =
+            serde_json::from_value(response_json).map_err(ApiError::JsonDecodeError)?;
         Ok(course_list)
     }
 
@@ -440,6 +414,7 @@ impl Api {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CliError;
 
     #[tokio::test]
     async fn test_is_user_authenticated_mock_authenticated() {
