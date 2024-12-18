@@ -276,7 +276,7 @@ async fn run() -> Result<(), CliError> {
         }
         Commands::Change => {
             info!("Changing credentials.");
-            let _ = manager.delete_credentials();
+            manager.delete_credentials()?;
             let mut change_controller =
                 Controller::new(Api::new()?, exit_fn, manager, false, false, |body: &str| {
                     show_notification(body);
@@ -286,7 +286,7 @@ async fn run() -> Result<(), CliError> {
         }
         Commands::Delete => {
             info!("Deleting credentials.");
-            let _ = manager.delete_credentials();
+            manager.delete_credentials()?;
             println!("{}", "Success: Credentials deleted!".green().bold());
             Ok(())
         }
