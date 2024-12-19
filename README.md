@@ -1,8 +1,9 @@
 # TUEnroll
 
-**TUEnroll** is a CLI tool designed to automate the exam registration process at **TU Delft**.
-
-It periodically checks for open exam registrations and automatically registers you when new exams are available.
+A CLI tool that automatically registers you for TU Delft exams. It:
+- Registers for all exams in your enrolled courses
+- Stores credentials securely on your computer
+- Sends notifications when registration is successful
 
 <p align="center">
   <img src="logo_full.png" alt="TUEnroll Logo" />
@@ -21,53 +22,44 @@ It periodically checks for open exam registrations and automatically registers y
   <a href="https://github.com/dhruvan2006/tuenroll/releases">
     <img src="https://img.shields.io/github/v/release/dhruvan2006/tuenroll?logo=github&color=green" alt="Version" />
   </a>
-  <a href="https://crates.io/crates/tuenroll">
-    <img src="https://img.shields.io/crates/d/tuenroll?color=orange&logo=cargo&logoColor=white" alt="Downloads" />
-  </a>
-  <a href="https://crates.io/crates/tuenroll">
-    <img src="https://img.shields.io/crates/v/tuenroll.svg?logo=cargo&logoColor=white" alt="Version" />
-  </a>
 </p>
 
-## Installation
+# 💻 Installation
 
-### With Cargo
+## ⚡ Quick Install (Recommended)
 
-Use the package manager `cargo` to install tuenroll.
-
-```bash
-cargo install tuenroll
-```
-
-### With binaries
-
-#### Windows
+### 🪟 Windows
 
 ```bash
 powershell -c "irm https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.ps1 | iex"
 ```
 
-#### Ubuntu:
-
+### 🐧 Linux
+#### Ubuntu/Debian:
 ```bash
 sudo apt install libdbus-1-dev pkg-config
 curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.sh | sh
 ```
 
 #### Fedora:
-
 ```bash
 sudo dnf install dbus-devel pkgconf-pkg-config
 curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.sh | sh
 ```
 
-#### Mac
+### 🍎 macOS
+🚧 macOS support is under development
 
+## 🛠️ Alternative methods
+
+### 📦 Using Cargo
+If you have Rust installed:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dhruvan2006/tuenroll/main/install.sh | sh
+cargo install tuenroll
 ```
 
-### Build from source
+
+### 🔧 From Source
 
 ```bash
 git clone https://github.com/dhruvan2006/tuenroll.git
@@ -75,39 +67,54 @@ cd tuenroll
 cargo install --path .
 ```
 
-## Usage
+## ♻️ Usage
 
-### 1. Start background service:
-
+### 🚀 Start background service:
+It sets up periodic checks to register for exams.
 ```bash
 tuenroll start
 ```
 
-2. Run a one time check:
+<p align="center">
+  <img src="start.png" alt="TUEnroll Logo" />
+</p>
+
+### 🔨 Other commands:
+1. Run a one time check:
 
 ```bash
 tuenroll run
 ```
 
-3. Stop Background Service:
+2. Stop Background Service:
 
 ```bash
 tuenroll stop
 ```
 
-4. Change credentials:
+3. Change credentials:
 
 ```bash
 tuenroll change
 ```
 
-5. Delete Credentials:
+4. Delete Credentials:
 
 ```bash
 tuenroll delete
 ```
 
-## License
+5. View Status:
+
+```bash
+tuenroll status
+```
+
+6. View Logs:
+
+```bash
+tuenroll log
+```
 
 ## Disclaimer
 

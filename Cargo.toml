@@ -2,6 +2,13 @@
 name = "tuenroll"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A CLI tool for auto enrolling in courses at TU Delft"
+readme = "README.md"
+repository = "https://github.com/dhruvan2006/tuenroll"
+homepage = "https://github.com/dhruvan2006/tuenroll"
+keywords = ["cli", "enroll", "university", "automation"]
+categories = ["command-line-interface"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "cookies", "multipart", "blocking"] }
