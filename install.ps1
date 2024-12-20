@@ -70,26 +70,5 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
         [Environment]::GetEnvironmentVariable("Path", "User") +
         ";$InstallDir"
 
-# More robust verification
-Write-Host "Verifying installation..." -ForegroundColor Cyan
-try
-{
-    $process = Start-Process -FilePath "$InstallDir\$BinaryName" -ArgumentList "--version" -NoNewWindow -PassThru -Wait
-    if ($process.ExitCode -eq 0)
-    {
-        Write-Host "$BinaryName has been successfully installed and added to PATH!" -ForegroundColor Green
-    }
-    else
-    {
-        Write-Host "Installation verification failed with exit code $( $process.ExitCode )" -ForegroundColor Red
-        Exit 1
-    }
-}
-catch
-{
-    Write-Host "Failed to run $BinaryName. Error: $_" -ForegroundColor Red
-    Exit 1
-}
-
 # Inform user about terminal reinstallation
 Write-Host "!!! IMPORTANT: Please restart your terminal session !!!" -ForegroundColor Magenta
